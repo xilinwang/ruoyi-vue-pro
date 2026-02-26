@@ -39,6 +39,12 @@
             <version>${revision}</version>
         </dependency>
 
+        <!-- PostgreSQL JDBC Driver -->
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+        </dependency>
+
         <!-- 会员中心。默认注释，保证编译速度 -->
 <!--        <dependency>-->
 <!--            <groupId>cn.iocoder.boot</groupId>-->
