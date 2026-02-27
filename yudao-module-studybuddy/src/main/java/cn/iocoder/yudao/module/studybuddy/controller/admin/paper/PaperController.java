@@ -65,6 +65,14 @@ public class PaperController {
         return success(PaperConvert.INSTANCE.convert(paper));
     }
 
+    @GetMapping("/get-with-questions")
+    @Operation(summary = "获取试卷详情（含题目）")
+    @Parameter(name = "id", description = "试卷ID", required = true, example = "1")
+    @PreAuthorize("@ss.hasPermission('studybuddy:paper:query')")
+    public CommonResult<PaperWithQuestionsRespVO> getPaperWithQuestions(@RequestParam("id") Long id) {
+        return success(paperService.getPaperWithQuestions(id));
+    }
+
     @GetMapping("/page")
     @Operation(summary = "获取试卷分页")
     @PreAuthorize("@ss.hasPermission('studybuddy:paper:query')")

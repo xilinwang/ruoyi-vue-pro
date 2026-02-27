@@ -75,4 +75,12 @@ public interface PaperService {
      */
     void triggerAnalyze(Long id);
 
+    /**
+     * 获取试卷详情（含题目）
+     *
+     * @param id 试卷ID
+     * @return 试卷详情（含题目）
+     */
+    PaperWithQuestionsRespVO getPaperWithQuestions(Long id);
+
 }

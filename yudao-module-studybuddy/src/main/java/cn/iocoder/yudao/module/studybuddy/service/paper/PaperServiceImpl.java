@@ -3,8 +3,11 @@ package cn.iocoder.yudao.module.studybuddy.service.paper;
 import cn.hutool.core.util.ObjectUtil;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.module.studybuddy.controller.admin.paper.vo.*;
+import cn.iocoder.yudao.module.studybuddy.convert.paper.PaperConvert;
 import cn.iocoder.yudao.module.studybuddy.dal.dataobject.paper.PaperDO;
+import cn.iocoder.yudao.module.studybuddy.dal.dataobject.paper.QuestionDO;
 import cn.iocoder.yudao.module.studybuddy.dal.mysql.paper.PaperMapper;
+import cn.iocoder.yudao.module.studybuddy.dal.mysql.paper.QuestionMapper;
 import cn.iocoder.yudao.module.studybuddy.enums.paper.PaperStatusEnum;
 import cn.iocoder.yudao.module.studybuddy.service.paper.event.PaperAnalyzeEvent;
 import cn.iocoder.yudao.module.studybuddy.service.paper.event.PaperOcrEvent;
@@ -15,6 +18,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.validation.annotation.Validated;
 
 import javax.annotation.Resource;
+
+import java.util.List;
 
 import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
 import static cn.iocoder.yudao.module.studybuddy.enums.ErrorCodeConstants.*;
@@ -31,6 +36,9 @@ public class PaperServiceImpl implements PaperService {
 
     @Resource
     private PaperMapper paperMapper;
+
+    @Resource
+    private QuestionMapper questionMapper;
 
     @Resource
     private ApplicationEventPublisher eventPublisher;
@@ -187,6 +195,35 @@ public class PaperServiceImpl implements PaperService {
         eventPublisher.publishEvent(new PaperAnalyzeEvent(id));
 
         log.info("[triggerAnalyze] 触发试卷分析成功，试卷ID: {}", id);
+    }
+
+    @Override
+    public PaperWithQuestionsRespVO getPaperWithQuestions(Long id) {
+        // 校验试卷存在
+        PaperDO paper = validatePaperExists(id);
+
+        // 查询题目列表
+        List<QuestionDO> questions = questionMapper.selectListByPaperId(id);
+
+        // 构建响应VO
+        PaperWithQuestionsRespVO respVO = PaperWithQuestionsRespVO.builder()
+                .id(paper.getId())
+                .paperNo(paper.getPaperNo())
+                .studentId(paper.getStudentId())
+                .subject(paper.getSubject())
+                .title(paper.getTitle())
+                .examDate(paper.getExamDate())
+                .grade(paper.getGrade())
+                .semester(paper.getSemester())
+                .filePath(paper.getFilePath())
+                .status(paper.getStatus())
+                .errorMsg(paper.getErrorMsg())
+                .questionCount(questions.size())
+                .questions(PaperConvert.INSTANCE.convertQuestionList(questions))
+                .build();
+
+        log.info("[getPaperWithQuestions] 获取试卷详情成功，试卷ID: {}, 题目数量: {}", id, questions.size());
+        return respVO;
     }
 
     // ==================== 私有方法 ====================
