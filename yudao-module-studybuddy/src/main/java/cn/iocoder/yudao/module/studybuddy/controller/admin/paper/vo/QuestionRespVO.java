@@ -38,6 +38,12 @@ public class QuestionRespVO {
     @Schema(description = "标准答案是否已确认", example = "false")
     private Boolean standardAnswerVerified;
 
+    @Schema(description = "原始答案（从试卷中提取的原始答案文本）")
+    private String originalAnswer;
+
+    @Schema(description = "解题思路（AI生成或教师提供的解题思路）")
+    private String solutionApproach;
+
     @Schema(description = "创建时间", example = "2025-01-01 12:00:00")
     private LocalDateTime createTime;
 

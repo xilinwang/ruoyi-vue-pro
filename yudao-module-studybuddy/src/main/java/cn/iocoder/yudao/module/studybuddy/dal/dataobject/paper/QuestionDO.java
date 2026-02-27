@@ -67,4 +67,14 @@ public class QuestionDO extends TenantBaseDO {
      */
     private Boolean standardAnswerVerified;
 
+    /**
+     * 原始答案（从试卷中提取的原始答案文本）
+     */
+    private String originalAnswer;
+
+    /**
+     * 解题思路（AI生成或教师提供的解题思路）
+     */
+    private String solutionApproach;
+
 }
