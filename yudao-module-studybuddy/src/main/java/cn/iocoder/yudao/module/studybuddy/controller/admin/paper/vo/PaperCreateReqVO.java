@@ -16,19 +16,21 @@ import java.time.LocalDate;
 @Data
 public class PaperCreateReqVO {
 
-    @Schema(description = "试卷编号", required = true, example = "P2025001")
-    @NotBlank(message = "试卷编号不能为空")
+    @Schema(description = "试卷编号", example = "P2025001")
     private String paperNo;
 
-    @Schema(description = "学生ID", required = true, example = "1001")
-    @NotNull(message = "学生ID不能为空")
+    @Schema(description = "学生ID", example = "1001")
     private Long studentId;
 
     @Schema(description = "科目", example = "数学")
     private String subject;
 
-    @Schema(description = "试卷标题", example = "期中考试数学试卷")
+    @Schema(description = "试卷标题", required = true, example = "期中考试数学试卷")
+    @NotBlank(message = "试卷标题不能为空")
     private String title;
+
+    @Schema(description = "试卷描述")
+    private String description;
 
     @Schema(description = "考试日期", example = "2025-01-15")
     private LocalDate examDate;

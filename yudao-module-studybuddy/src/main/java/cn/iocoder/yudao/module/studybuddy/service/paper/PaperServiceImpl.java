@@ -38,13 +38,25 @@ public class PaperServiceImpl implements PaperService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Long createPaper(PaperCreateReqVO createReqVO) {
-        // 校验试卷编号唯一性
-        validatePaperNoUnique(null, createReqVO.getPaperNo());
+        // 自动生成试卷编号（如果未提供）
+        String paperNo = createReqVO.getPaperNo();
+        if (paperNo == null || paperNo.trim().isEmpty()) {
+            paperNo = generatePaperNo(createReqVO.getSubject(), createReqVO.getTitle());
+        } else {
+            // 校验试卷编号唯一性
+            validatePaperNoUnique(null, paperNo);
+        }
+
+        // 默认学生ID（如果未提供，默认为1即管理员）
+        Long studentId = createReqVO.getStudentId();
+        if (studentId == null) {
+            studentId = 1L;
+        }
 
         // 插入数据库
         PaperDO paper = PaperDO.builder()
-                .paperNo(createReqVO.getPaperNo())
-                .studentId(createReqVO.getStudentId())
+                .paperNo(paperNo)
+                .studentId(studentId)
                 .subject(createReqVO.getSubject())
                 .title(createReqVO.getTitle())
                 .examDate(createReqVO.getExamDate())
@@ -56,10 +68,41 @@ public class PaperServiceImpl implements PaperService {
         paperMapper.insert(paper);
 
         // 发布 OCR 处理事件（异步处理）
-        eventPublisher.publishEvent(new PaperOcrEvent(paper.getId(), paper.getFilePath()));
+        if (paper.getFilePath() != null && !paper.getFilePath().trim().isEmpty()) {
+            eventPublisher.publishEvent(new PaperOcrEvent(paper.getId(), paper.getFilePath()));
+        }
 
         log.info("[createPaper] 创建试卷成功，试卷ID: {}, 试卷编号: {}", paper.getId(), paper.getPaperNo());
         return paper.getId();
+    }
+
+    /**
+     * 生成试卷编号
+     * 格式: 科目拼音首字母 + 年月日时分秒 + 3位随机数
+     * 例如: MATH202501271830001
+     */
+    private String generatePaperNo(String subject, String title) {
+        // 获取当前时间戳（精确到秒）
+        String timeStr = java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
+
+        // 科目代码（默认使用UNKNOWN）
+        String subjectCode = "UNK";
+        if (subject != null && !subject.trim().isEmpty()) {
+            // 简单的科目代码映射
+            String[] subjects = {"数学", "语文", "英语", "物理", "化学", "生物", "历史", "地理", "政治"};
+            String[] codes = {"MATH", "CHIN", "ENG", "PHYS", "CHEM", "BIO", "HIST", "GEO", "POLI"};
+            for (int i = 0; i < subjects.length; i++) {
+                if (subject.contains(subjects[i])) {
+                    subjectCode = codes[i];
+                    break;
+                }
+            }
+        }
+
+        // 生成3位随机数
+        String randomNum = String.format("%03d", (int)(Math.random() * 1000));
+
+        return subjectCode + timeStr + randomNum;
     }
 
     @Override
