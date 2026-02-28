@@ -55,6 +55,11 @@ public class PaperDO extends TenantBaseDO {
     private String title;
 
     /**
+     * 试卷描述
+     */
+    private String description;
+
+    /**
      * 考试日期
      */
     private LocalDate examDate;
@@ -85,5 +90,10 @@ public class PaperDO extends TenantBaseDO {
      * 错误信息
      */
     private String errorMsg;
+
+    /**
+     * OCR 模型 (aliyun/iflow)
+     */
+    private String ocrModel;
 
 }

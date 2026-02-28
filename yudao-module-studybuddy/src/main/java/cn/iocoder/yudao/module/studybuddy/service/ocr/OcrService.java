@@ -23,4 +23,13 @@ public interface OcrService {
      */
     String recognizePaperForEducation(String imageFilePath);
 
+    /**
+     * 使用指定模型识别试卷图片
+     *
+     * @param imageFilePath 图片文件路径
+     * @param ocrModel OCR 模型代码（aliyun/iflow）
+     * @return OCR 识别结果
+     */
+    String recognizePaperWithModel(String imageFilePath, String ocrModel);
+
 }

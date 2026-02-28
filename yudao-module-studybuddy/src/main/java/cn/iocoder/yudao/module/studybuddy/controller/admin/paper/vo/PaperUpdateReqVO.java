@@ -35,6 +35,9 @@ public class PaperUpdateReqVO {
     @Schema(description = "试卷标题", example = "期中考试数学试卷")
     private String title;
 
+    @Schema(description = "试卷描述", example = "高一上学期期中考试")
+    private String description;
+
     @Schema(description = "考试日期", example = "2025-01-15")
     private LocalDate examDate;
 

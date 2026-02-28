@@ -82,20 +82,22 @@ public class LlmServiceImpl implements LlmService {
 
     @Override
     public String parseQuestionStructure(String ocrText) {
-        log.info("[parseQuestionStructure] 开始解析题目结构，OCR文本长度: {}", ocrText != null ? ocrText.length() : 0);
+        log.info("[parseQuestionStructure] 开始解析题目结构，OCR文本长度: {}, 使用模型: {}", 
+                ocrText != null ? ocrText.length() : 0, 
+                llmConfiguration.getProvider() + "/" + llmConfiguration.getModel());
 
         try {
             // 检查配置
             if (!StringUtils.hasText(llmConfiguration.getApiKey())) {
-                log.warn("[parseQuestionStructure] DeepSeek API Key 未配置，使用模拟数据");
+                log.warn("[parseQuestionStructure] LLM API Key 未配置，使用模拟数据");
                 return createMockQuestionJson(ocrText);
             }
 
             // 构建请求
             String prompt = PARSE_QUESTION_PROMPT + "\n" + ocrText;
 
-            // 调用 DeepSeek API
-            String response = callDeepSeekApi(prompt);
+            // 调用 LLM API
+            String response = callLlmApi(prompt);
 
             log.info("[parseQuestionStructure] 题目结构解析完成");
             return response;
@@ -110,20 +112,21 @@ public class LlmServiceImpl implements LlmService {
 
     @Override
     public String analyzeAnswer(String questionContent, String studentAnswer, String standardAnswer) {
-        log.info("[analyzeAnswer] 开始分析答案");
+        log.info("[analyzeAnswer] 开始分析答案，使用模型: {}", 
+                llmConfiguration.getProvider() + "/" + llmConfiguration.getModel());
 
         try {
             // 检查配置
             if (!StringUtils.hasText(llmConfiguration.getApiKey())) {
-                log.warn("[analyzeAnswer] DeepSeek API Key 未配置，使用模拟数据");
+                log.warn("[analyzeAnswer] LLM API Key 未配置，使用模拟数据");
                 return createMockAnalysisResult();
             }
 
             // 构建请求
             String prompt = String.format(ANALYZE_ANSWER_PROMPT_TEMPLATE, questionContent, standardAnswer, studentAnswer);
 
-            // 调用 DeepSeek API
-            String response = callDeepSeekApi(prompt);
+            // 调用 LLM API
+            String response = callLlmApi(prompt);
 
             log.info("[analyzeAnswer] 答案分析完成");
             return response;
@@ -137,10 +140,10 @@ public class LlmServiceImpl implements LlmService {
     }
 
     /**
-     * 调用 DeepSeek API
+     * 调用 LLM API（支持 DeepSeek 和 Qwen）
      */
-    private String callDeepSeekApi(String prompt) throws Exception {
-        String url = llmConfiguration.getBaseUrl() + "/v1/chat/completions";
+    private String callLlmApi(String prompt) throws Exception {
+        String url = llmConfiguration.getBaseUrl() + "/chat/completions";
 
         // 构建请求体
         Map<String, Object> requestBody = new HashMap<>();
@@ -157,7 +160,8 @@ public class LlmServiceImpl implements LlmService {
         requestBody.put("temperature", 0.3);
         requestBody.put("max_tokens", 4000);
 
-        log.info("[callDeepSeekApi] 调用 DeepSeek API，URL: {}", url);
+        log.info("[callLlmApi] 调用 LLM API，Provider: {}, Model: {}, URL: {}", 
+                llmConfiguration.getProvider(), llmConfiguration.getModel(), url);
 
         // 发送请求
         HttpResponse response = HttpRequest.post(url)
@@ -169,7 +173,8 @@ public class LlmServiceImpl implements LlmService {
 
         // 检查响应状态
         if (!response.isOk()) {
-            throw new RuntimeException("DeepSeek API 调用失败，状态码: " + response.getStatus());
+            throw new RuntimeException("LLM API 调用失败，状态码: " + response.getStatus() + 
+                    ", 响应: " + response.body());
         }
 
         // 解析响应
@@ -180,8 +185,8 @@ public class LlmServiceImpl implements LlmService {
         String content = jsonResponse.getByPath("choices[0].message.content", String.class);
 
         if (content == null) {
-            log.error("[callDeepSeekApi] API 响应格式错误: {}", responseBody);
-            throw new RuntimeException("DeepSeek API 响应格式错误");
+            log.error("[callLlmApi] API 响应格式错误: {}", responseBody);
+            throw new RuntimeException("LLM API 响应格式错误");
         }
 
         return content;

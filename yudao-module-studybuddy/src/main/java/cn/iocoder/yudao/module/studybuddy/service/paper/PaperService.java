@@ -76,6 +76,13 @@ public interface PaperService {
     void triggerAnalyze(Long id);
 
     /**
+     * 触发OCR识别
+     *
+     * @param id 试卷ID
+     */
+    void triggerOcr(Long id);
+
+    /**
      * 获取试卷详情（含题目）
      *
      * @param id 试卷ID

@@ -4,6 +4,7 @@ import cn.hutool.core.util.ObjectUtil;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.module.studybuddy.controller.admin.paper.vo.*;
 import cn.iocoder.yudao.module.studybuddy.convert.paper.PaperConvert;
+import cn.iocoder.yudao.module.studybuddy.convert.paper.PaperFileConvert;
 import cn.iocoder.yudao.module.studybuddy.dal.dataobject.paper.PaperDO;
 import cn.iocoder.yudao.module.studybuddy.dal.dataobject.paper.QuestionDO;
 import cn.iocoder.yudao.module.studybuddy.dal.mysql.paper.PaperMapper;
@@ -11,6 +12,7 @@ import cn.iocoder.yudao.module.studybuddy.dal.mysql.paper.QuestionMapper;
 import cn.iocoder.yudao.module.studybuddy.enums.paper.PaperStatusEnum;
 import cn.iocoder.yudao.module.studybuddy.service.paper.event.PaperAnalyzeEvent;
 import cn.iocoder.yudao.module.studybuddy.service.paper.event.PaperOcrEvent;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -71,23 +73,19 @@ public class PaperServiceImpl implements PaperService {
                 .subjectId(createReqVO.getSubjectId())
                 .subject(createReqVO.getSubject())
                 .title(createReqVO.getTitle())
+                .description(createReqVO.getDescription())
                 .examDate(createReqVO.getExamDate())
                 .grade(createReqVO.getGrade())
                 .semester(createReqVO.getSemester())
                 .filePath(createReqVO.getFilePath())
-                .status(PaperStatusEnum.OCR_PROCESSING.getCode())
+                .status(PaperStatusEnum.UPLOADED.getCode())
+                .ocrModel(createReqVO.getOcrModel())
                 .build();
         paperMapper.insert(paper);
 
-        // 处理多文件上传
+        // 处理多文件上传（不自动触发OCR）
         if (createReqVO.getFiles() != null && !createReqVO.getFiles().isEmpty()) {
             paperFileService.batchCreatePaperFiles(paper.getId(), createReqVO.getFiles());
-            // 使用第一个文件路径触发OCR（保持向后兼容）
-            String firstFilePath = createReqVO.getFiles().get(0).getFilePath();
-            eventPublisher.publishEvent(new PaperOcrEvent(paper.getId(), firstFilePath));
-        } else if (paper.getFilePath() != null && !paper.getFilePath().trim().isEmpty()) {
-            // 兼容旧的单文件上传方式
-            eventPublisher.publishEvent(new PaperOcrEvent(paper.getId(), paper.getFilePath()));
         }
 
         log.info("[createPaper] 创建试卷成功，试卷ID: {}, 试卷编号: {}", paper.getId(), paper.getPaperNo());
@@ -118,9 +116,10 @@ public class PaperServiceImpl implements PaperService {
         }
 
         // 查询当天已有的试卷数量，生成序号
-        // int count = paperMapper.selectCount("create_time >= CURRENT_DATE");
-        // String seqNo = String.format("%04d", count + 1);
-        String seqNo = String.format("%04d", (int)(Math.random() * 1000));
+        int count = Math.toIntExact(paperMapper.selectCount(
+                new LambdaQueryWrapper<PaperDO>()
+                        .ge(PaperDO::getCreateTime, java.time.LocalDate.now().atStartOfDay())));
+        String seqNo = String.format("%04d", count + 1);
 
         return subjectCode + dateStr + seqNo;
     }
@@ -141,6 +140,7 @@ public class PaperServiceImpl implements PaperService {
                 .subjectId(updateReqVO.getSubjectId())
                 .subject(updateReqVO.getSubject())
                 .title(updateReqVO.getTitle())
+                .description(updateReqVO.getDescription())
                 .examDate(updateReqVO.getExamDate())
                 .grade(updateReqVO.getGrade())
                 .semester(updateReqVO.getSemester())
@@ -216,6 +216,35 @@ public class PaperServiceImpl implements PaperService {
     }
 
     @Override
+    public void triggerOcr(Long id) {
+        // 校验存在
+        PaperDO paper = validatePaperExists(id);
+
+        // 校验状态：只有已上传状态才能触发OCR
+        if (!PaperStatusEnum.UPLOADED.getCode().equals(paper.getStatus())) {
+            throw exception(PAPER_STATUS_NOT_UPLOADED);
+        }
+
+        // 获取试卷文件
+        List<cn.iocoder.yudao.module.studybuddy.dal.dataobject.paper.PaperFileDO> files =
+                paperFileService.getPaperFilesByPaperId(id);
+        
+        if (files.isEmpty() && (paper.getFilePath() == null || paper.getFilePath().trim().isEmpty())) {
+            throw exception(PAPER_FILE_NOT_EXISTS);
+        }
+
+        // 更新状态为OCR处理中
+        updatePaperStatus(id, PaperStatusEnum.OCR_PROCESSING.getCode());
+
+        // 发布OCR事件
+        String filePath = !files.isEmpty() ? files.get(0).getFilePath() : paper.getFilePath();
+        String ocrModel = paper.getOcrModel() != null ? paper.getOcrModel() : "aliyun";
+        eventPublisher.publishEvent(new PaperOcrEvent(id, filePath, ocrModel));
+
+        log.info("[triggerOcr] 触发OCR识别成功，试卷ID: {}, 文件路径: {}, OCR模型: {}", id, filePath, ocrModel);
+    }
+
+    @Override
     public PaperWithQuestionsRespVO getPaperWithQuestions(Long id) {
         // 校验试卷存在
         PaperDO paper = validatePaperExists(id);
@@ -243,10 +272,11 @@ public class PaperServiceImpl implements PaperService {
                 .errorMsg(paper.getErrorMsg())
                 .questionCount(questions.size())
                 .questions(PaperConvert.INSTANCE.convertQuestionList(questions))
+                .files(PaperFileConvert.INSTANCE.convertList(files))
                 .build();
 
         log.info("[getPaperWithQuestions] 获取试卷详情成功，试卷ID: {}, 题目数量: {}, 文件数量: {}",
-                id, questions.size(), files != null ? files.size() : 0);
+                id, questions.size(), files.size());
         return respVO;
     }
 

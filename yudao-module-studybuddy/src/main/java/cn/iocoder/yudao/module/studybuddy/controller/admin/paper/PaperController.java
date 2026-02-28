@@ -4,7 +4,10 @@ import cn.iocoder.yudao.framework.common.pojo.CommonResult;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.module.studybuddy.controller.admin.paper.vo.*;
 import cn.iocoder.yudao.module.studybuddy.convert.paper.PaperConvert;
+import cn.iocoder.yudao.module.studybuddy.convert.paper.PaperFileConvert;
 import cn.iocoder.yudao.module.studybuddy.dal.dataobject.paper.PaperDO;
+import cn.iocoder.yudao.module.studybuddy.dal.mysql.paper.QuestionMapper;
+import cn.iocoder.yudao.module.studybuddy.service.paper.PaperFileService;
 import cn.iocoder.yudao.module.studybuddy.service.paper.PaperService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -15,6 +18,7 @@ import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.Resource;
 import javax.validation.Valid;
+import java.util.List;
 
 import static cn.iocoder.yudao.framework.common.pojo.CommonResult.success;
 
@@ -31,6 +35,12 @@ public class PaperController {
 
     @Resource
     private PaperService paperService;
+
+    @Resource
+    private PaperFileService paperFileService;
+
+    @Resource
+    private QuestionMapper questionMapper;
 
     @PostMapping("/create")
     @Operation(summary = "创建试卷")
@@ -78,7 +88,18 @@ public class PaperController {
     @PreAuthorize("@ss.hasPermission('studybuddy:paper:query')")
     public CommonResult<PageResult<PaperRespVO>> getPaperPage(@Valid PaperPageReqVO pageReqVO) {
         PageResult<PaperDO> pageResult = paperService.getPaperPage(pageReqVO);
-        return success(PaperConvert.INSTANCE.convertPage(pageResult));
+        PageResult<PaperRespVO> voPageResult = PaperConvert.INSTANCE.convertPage(pageResult);
+        
+        // 填充文件列表和题目数量
+        voPageResult.getList().forEach(vo -> {
+            // 填充文件列表
+            vo.setFiles(PaperFileConvert.INSTANCE.convertList(
+                    paperFileService.getPaperFilesByPaperId(vo.getId())));
+            // 填充题目数量
+            vo.setQuestionCount(questionMapper.selectCountByPaperId(vo.getId()));
+        });
+        
+        return success(voPageResult);
     }
 
     @GetMapping("/status")
@@ -101,6 +122,15 @@ public class PaperController {
     @PreAuthorize("@ss.hasPermission('studybuddy:paper:analyze')")
     public CommonResult<Boolean> triggerAnalyze(@RequestParam("id") Long id) {
         paperService.triggerAnalyze(id);
+        return success(true);
+    }
+
+    @PostMapping("/ocr")
+    @Operation(summary = "触发OCR识别")
+    @Parameter(name = "id", description = "试卷ID", required = true, example = "1")
+    @PreAuthorize("@ss.hasPermission('studybuddy:paper:create')")
+    public CommonResult<Boolean> triggerOcr(@RequestParam("id") Long id) {
+        paperService.triggerOcr(id);
         return success(true);
     }
 

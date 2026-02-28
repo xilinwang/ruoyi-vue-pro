@@ -48,6 +48,9 @@ public class PaperCreateReqVO {
     @Deprecated
     private String filePath;
 
+    @Schema(description = "OCR 模型 (aliyun/iflow)", example = "iflow")
+    private String ocrModel;
+
     @Schema(description = "试卷文件列表")
     private List<FileCreateInfo> files;
 

@@ -34,6 +34,9 @@ public class PaperRespVO {
     @Schema(description = "试卷标题", example = "期中考试数学试卷")
     private String title;
 
+    @Schema(description = "试卷描述", example = "高一上学期期中考试")
+    private String description;
+
     @Schema(description = "考试日期", example = "2025-01-15")
     private LocalDate examDate;
 
@@ -49,6 +52,9 @@ public class PaperRespVO {
 
     @Schema(description = "试卷文件列表")
     private List<PaperFileRespVO> files;
+
+    @Schema(description = "题目数量", example = "20")
+    private Integer questionCount;
 
     @Schema(description = "处理状态", example = "READY")
     private String status;

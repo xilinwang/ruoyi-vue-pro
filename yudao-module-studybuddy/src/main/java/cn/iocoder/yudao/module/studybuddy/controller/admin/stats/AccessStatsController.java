@@ -1,0 +1,51 @@
+package cn.iocoder.yudao.module.studybuddy.controller.admin.stats;
+
+import cn.iocoder.yudao.framework.common.pojo.CommonResult;
+import cn.iocoder.yudao.module.studybuddy.controller.admin.stats.vo.AccessStatsRespVO;
+import cn.iocoder.yudao.module.studybuddy.service.stats.AccessStatsService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.*;
+
+import javax.annotation.Resource;
+import java.time.LocalDateTime;
+
+import static cn.iocoder.yudao.framework.common.pojo.CommonResult.success;
+
+/**
+ * 访问统计 Controller
+ *
+ * @author StudyBuddy
+ */
+@Tag(name = "管理后台 - 访问统计")
+@RestController
+@RequestMapping("/studybuddy/stats/access")
+@Validated
+public class AccessStatsController {
+
+    @Resource
+    private AccessStatsService accessStatsService;
+
+    @GetMapping("/stats")
+    @Operation(summary = "获取访问统计")
+    @PreAuthorize("@ss.hasPermission('studybuddy:stats:query')")
+    public CommonResult<AccessStatsRespVO> getAccessStats(
+            @Parameter(description = "开始时间") @RequestParam(required = false)
+            @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss") LocalDateTime startTime,
+            @Parameter(description = "结束时间") @RequestParam(required = false)
+            @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss") LocalDateTime endTime) {
+        // 默认查询最近30天
+        if (startTime == null) {
+            startTime = LocalDateTime.now().minusDays(30);
+        }
+        if (endTime == null) {
+            endTime = LocalDateTime.now();
+        }
+        return success(accessStatsService.getAccessStats(startTime, endTime));
+    }
+
+}

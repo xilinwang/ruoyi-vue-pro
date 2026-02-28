@@ -26,6 +26,16 @@ public interface QuestionMapper extends BaseMapperX<QuestionDO> {
     }
 
     /**
+     * 根据试卷ID查询题目数量
+     *
+     * @param paperId 试卷ID
+     * @return 题目数量
+     */
+    default int selectCountByPaperId(Long paperId) {
+        return selectCount(QuestionDO::getPaperId, paperId).intValue();
+    }
+
+    /**
      * 根据题目编号查询题目
      *
      * @param questionNo 题目编号

@@ -13,6 +13,11 @@ import lombok.Getter;
 public enum PaperStatusEnum {
 
     /**
+     * 已上传，待OCR识别
+     */
+    UPLOADED("UPLOADED", "已上传"),
+
+    /**
      * OCR 处理中
      */
     OCR_PROCESSING("OCR_PROCESSING", "OCR 处理中"),

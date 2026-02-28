@@ -11,6 +11,7 @@ import cn.iocoder.yudao.module.studybuddy.enums.paper.PaperStatusEnum;
 import cn.iocoder.yudao.module.studybuddy.framework.job.config.StudyBuddyJobConfiguration;
 import cn.iocoder.yudao.module.studybuddy.service.llm.LlmService;
 import cn.iocoder.yudao.module.studybuddy.service.ocr.OcrService;
+import cn.iocoder.yudao.module.studybuddy.service.ocr.OcrServiceFactory;
 import cn.iocoder.yudao.module.studybuddy.service.paper.event.PaperAnalyzeEvent;
 import cn.iocoder.yudao.module.studybuddy.service.paper.event.PaperOcrEvent;
 import cn.iocoder.yudao.module.studybuddy.service.paper.event.AnswerSheetUploadEvent;
@@ -35,7 +36,7 @@ import javax.annotation.Resource;
 public class PaperEventListener {
 
     @Resource
-    private OcrService ocrService;
+    private OcrServiceFactory ocrServiceFactory;
 
     @Resource
     private LlmService llmService;
@@ -55,12 +56,15 @@ public class PaperEventListener {
     @EventListener
     @Async(StudyBuddyJobConfiguration.STUDYBUDDY_TASK_EXECUTOR)
     public void handlePaperOcrEvent(PaperOcrEvent event) {
-        log.info("[handlePaperOcrEvent] 开始处理 OCR，试卷ID: {}, 文件路径: {}",
-                 event.getPaperId(), event.getFilePath());
+        log.info("[handlePaperOcrEvent] 开始处理 OCR，试卷ID: {}, 文件路径: {}, OCR模型: {}",
+                 event.getPaperId(), event.getFilePath(), event.getOcrModel());
 
         try {
+            // 根据模型选择 OCR 服务
+            OcrService ocrService = ocrServiceFactory.getOcrService(event.getOcrModel());
+
             // 1. 执行 OCR 识别
-            String ocrResult = ocrService.recognizePaperForEducation(event.getFilePath());
+            String ocrResult = ocrService.recognizePaperWithModel(event.getFilePath(), event.getOcrModel());
 
             // 2. 调用 LLM 解析题目结构
             String questionsJson = llmService.parseQuestionStructure(ocrResult);
@@ -231,7 +235,7 @@ public class PaperEventListener {
 
         try {
             // 1. 执行 OCR 识别答题卡
-            String ocrResult = ocrService.recognizePaperForEducation(event.getFilePath());
+            String ocrResult = ocrServiceFactory.getDefaultOcrService().recognizePaperForEducation(event.getFilePath());
 
             // 2. 获取试卷的所有题目
             java.util.List<QuestionDO> questions = questionMapper.selectListByPaperId(event.getPaperId());

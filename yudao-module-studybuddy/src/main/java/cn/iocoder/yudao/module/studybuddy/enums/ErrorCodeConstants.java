@@ -15,6 +15,7 @@ public interface ErrorCodeConstants {
     ErrorCode PAPER_NOT_EXISTS = new ErrorCode(1_020_001_000, "试卷不存在");
     ErrorCode PAPER_NO_EXISTS = new ErrorCode(1_020_001_001, "试卷编号已存在");
     ErrorCode PAPER_STATUS_NOT_READY = new ErrorCode(1_020_001_002, "试卷状态未就绪，无法分析");
+    ErrorCode PAPER_STATUS_NOT_UPLOADED = new ErrorCode(1_020_001_003, "试卷状态不是已上传，无法触发OCR");
 
     // ========== 题目模块 1-021-000-000 ==========
     ErrorCode QUESTION_NOT_EXISTS = new ErrorCode(1_021_001_000, "题目不存在");
@@ -25,5 +26,9 @@ public interface ErrorCodeConstants {
 
     // ========== 试卷文件模块 1-023-000-000 ==========
     ErrorCode PAPER_FILE_NOT_EXISTS = new ErrorCode(1_023_001_000, "试卷文件不存在");
+
+    // ========== 错题本模块 1-024-000-000 ==========
+    ErrorCode WRONG_BOOK_NOT_EXISTS = new ErrorCode(1_024_001_000, "错题不存在");
+    ErrorCode WRONG_BOOK_EXPORT_FAILED = new ErrorCode(1_024_001_001, "错题本导出失败");
 
 }

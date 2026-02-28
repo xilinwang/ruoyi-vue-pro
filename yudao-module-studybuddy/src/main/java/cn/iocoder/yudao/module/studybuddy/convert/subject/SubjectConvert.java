@@ -1,5 +1,6 @@
 package cn.iocoder.yudao.module.studybuddy.convert.subject;
 
+import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.module.studybuddy.controller.admin.subject.vo.*;
 import cn.iocoder.yudao.module.studybuddy.dal.dataobject.subject.SubjectDO;
 import org.mapstruct.Mapper;
@@ -24,5 +25,9 @@ public interface SubjectConvert {
     SubjectRespVO convert(SubjectDO bean);
 
     List<SubjectRespVO> convertList(List<SubjectDO> list);
+
+    default PageResult<SubjectRespVO> convertPage(PageResult<SubjectDO> pageResult) {
+        return new PageResult<>(convertList(pageResult.getList()), pageResult.getTotal());
+    }
 
 }
