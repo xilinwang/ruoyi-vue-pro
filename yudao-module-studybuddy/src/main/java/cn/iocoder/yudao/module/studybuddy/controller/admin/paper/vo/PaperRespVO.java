@@ -5,6 +5,7 @@ import lombok.Data;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 试卷 Response VO
@@ -24,7 +25,10 @@ public class PaperRespVO {
     @Schema(description = "学生ID", example = "1001")
     private Long studentId;
 
-    @Schema(description = "科目", example = "数学")
+    @Schema(description = "科目ID", example = "1")
+    private Long subjectId;
+
+    @Schema(description = "科目名称", example = "数学")
     private String subject;
 
     @Schema(description = "试卷标题", example = "期中考试数学试卷")
@@ -39,8 +43,12 @@ public class PaperRespVO {
     @Schema(description = "学期", example = "第一学期")
     private String semester;
 
-    @Schema(description = "试卷文件路径", example = "/upload/papers/paper001.pdf")
+    @Schema(description = "试卷文件路径（已废弃，使用files）", example = "/upload/papers/paper001.pdf")
+    @Deprecated
     private String filePath;
+
+    @Schema(description = "试卷文件列表")
+    private List<PaperFileRespVO> files;
 
     @Schema(description = "处理状态", example = "READY")
     private String status;

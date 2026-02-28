@@ -26,6 +26,9 @@ public class PaperWithQuestionsRespVO {
     @Schema(description = "学生ID", example = "1001")
     private Long studentId;
 
+    @Schema(description = "科目ID", example = "1")
+    private Long subjectId;
+
     @Schema(description = "科目", example = "数学")
     private String subject;
 
@@ -58,5 +61,8 @@ public class PaperWithQuestionsRespVO {
 
     @Schema(description = "题目列表")
     private List<QuestionRespVO> questions;
+
+    @Schema(description = "试卷文件列表")
+    private List<PaperFileRespVO> files;
 
 }

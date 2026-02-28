@@ -19,4 +19,11 @@ public interface ErrorCodeConstants {
     // ========== 题目模块 1-021-000-000 ==========
     ErrorCode QUESTION_NOT_EXISTS = new ErrorCode(1_021_001_000, "题目不存在");
 
+    // ========== 科目模块 1-022-000-000 ==========
+    ErrorCode SUBJECT_NOT_EXISTS = new ErrorCode(1_022_001_000, "科目不存在");
+    ErrorCode SUBJECT_NAME_EXISTS = new ErrorCode(1_022_001_001, "科目名称已存在");
+
+    // ========== 试卷文件模块 1-023-000-000 ==========
+    ErrorCode PAPER_FILE_NOT_EXISTS = new ErrorCode(1_023_001_000, "试卷文件不存在");
+
 }

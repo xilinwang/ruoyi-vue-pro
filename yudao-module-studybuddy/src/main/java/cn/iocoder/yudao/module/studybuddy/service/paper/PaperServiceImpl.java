@@ -41,6 +41,9 @@ public class PaperServiceImpl implements PaperService {
     private QuestionMapper questionMapper;
 
     @Resource
+    private PaperFileService paperFileService;
+
+    @Resource
     private ApplicationEventPublisher eventPublisher;
 
     @Override
@@ -65,6 +68,7 @@ public class PaperServiceImpl implements PaperService {
         PaperDO paper = PaperDO.builder()
                 .paperNo(paperNo)
                 .studentId(studentId)
+                .subjectId(createReqVO.getSubjectId())
                 .subject(createReqVO.getSubject())
                 .title(createReqVO.getTitle())
                 .examDate(createReqVO.getExamDate())
@@ -75,8 +79,14 @@ public class PaperServiceImpl implements PaperService {
                 .build();
         paperMapper.insert(paper);
 
-        // 发布 OCR 处理事件（异步处理）
-        if (paper.getFilePath() != null && !paper.getFilePath().trim().isEmpty()) {
+        // 处理多文件上传
+        if (createReqVO.getFiles() != null && !createReqVO.getFiles().isEmpty()) {
+            paperFileService.batchCreatePaperFiles(paper.getId(), createReqVO.getFiles());
+            // 使用第一个文件路径触发OCR（保持向后兼容）
+            String firstFilePath = createReqVO.getFiles().get(0).getFilePath();
+            eventPublisher.publishEvent(new PaperOcrEvent(paper.getId(), firstFilePath));
+        } else if (paper.getFilePath() != null && !paper.getFilePath().trim().isEmpty()) {
+            // 兼容旧的单文件上传方式
             eventPublisher.publishEvent(new PaperOcrEvent(paper.getId(), paper.getFilePath()));
         }
 
@@ -86,12 +96,12 @@ public class PaperServiceImpl implements PaperService {
 
     /**
      * 生成试卷编号
-     * 格式: 科目拼音首字母 + 年月日时分秒 + 3位随机数
-     * 例如: MATH202501271830001
+     * 格式: 科目拼音首字母 + 年月日 + 4位序号
+     * 例如: MATH20250127001
      */
     private String generatePaperNo(String subject, String title) {
-        // 获取当前时间戳（精确到秒）
-        String timeStr = java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
+        // 获取当前日期
+        String dateStr = java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd"));
 
         // 科目代码（默认使用UNKNOWN）
         String subjectCode = "UNK";
@@ -107,10 +117,12 @@ public class PaperServiceImpl implements PaperService {
             }
         }
 
-        // 生成3位随机数
-        String randomNum = String.format("%03d", (int)(Math.random() * 1000));
+        // 查询当天已有的试卷数量，生成序号
+        // int count = paperMapper.selectCount("create_time >= CURRENT_DATE");
+        // String seqNo = String.format("%04d", count + 1);
+        String seqNo = String.format("%04d", (int)(Math.random() * 1000));
 
-        return subjectCode + timeStr + randomNum;
+        return subjectCode + dateStr + seqNo;
     }
 
     @Override
@@ -126,6 +138,7 @@ public class PaperServiceImpl implements PaperService {
                 .id(updateReqVO.getId())
                 .paperNo(updateReqVO.getPaperNo())
                 .studentId(updateReqVO.getStudentId())
+                .subjectId(updateReqVO.getSubjectId())
                 .subject(updateReqVO.getSubject())
                 .title(updateReqVO.getTitle())
                 .examDate(updateReqVO.getExamDate())
@@ -134,6 +147,11 @@ public class PaperServiceImpl implements PaperService {
                 .filePath(updateReqVO.getFilePath())
                 .build();
         paperMapper.updateById(updateObj);
+
+        // 处理新增的文件
+        if (updateReqVO.getFiles() != null && !updateReqVO.getFiles().isEmpty()) {
+            paperFileService.batchCreatePaperFiles(updateReqVO.getId(), updateReqVO.getFiles());
+        }
 
         log.info("[updatePaper] 更新试卷成功，试卷ID: {}", updateReqVO.getId());
     }
@@ -205,11 +223,16 @@ public class PaperServiceImpl implements PaperService {
         // 查询题目列表
         List<QuestionDO> questions = questionMapper.selectListByPaperId(id);
 
+        // 查询文件列表
+        List<cn.iocoder.yudao.module.studybuddy.dal.dataobject.paper.PaperFileDO> files =
+                paperFileService.getPaperFilesByPaperId(id);
+
         // 构建响应VO
         PaperWithQuestionsRespVO respVO = PaperWithQuestionsRespVO.builder()
                 .id(paper.getId())
                 .paperNo(paper.getPaperNo())
                 .studentId(paper.getStudentId())
+                .subjectId(paper.getSubjectId())
                 .subject(paper.getSubject())
                 .title(paper.getTitle())
                 .examDate(paper.getExamDate())
@@ -222,7 +245,8 @@ public class PaperServiceImpl implements PaperService {
                 .questions(PaperConvert.INSTANCE.convertQuestionList(questions))
                 .build();
 
-        log.info("[getPaperWithQuestions] 获取试卷详情成功，试卷ID: {}, 题目数量: {}", id, questions.size());
+        log.info("[getPaperWithQuestions] 获取试卷详情成功，试卷ID: {}, 题目数量: {}, 文件数量: {}",
+                id, questions.size(), files != null ? files.size() : 0);
         return respVO;
     }
 

@@ -40,7 +40,12 @@ public class PaperDO extends TenantBaseDO {
     private Long studentId;
 
     /**
-     * 科目
+     * 科目ID
+     */
+    private Long subjectId;
+
+    /**
+     * 科目名称（冗余字段，用于显示）
      */
     private String subject;
 
