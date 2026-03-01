@@ -30,7 +30,7 @@ public class SubjectServiceImpl implements SubjectService {
         // 校验科目名称是否已存在
         SubjectDO existing = subjectMapper.selectByUserIdAndName(userId, createReqVO.getName());
         if (existing != null) {
-            exception(SUBJECT_NAME_EXISTS);
+            throw exception(SUBJECT_NAME_EXISTS);
         }
 
         // 插入数据库
@@ -52,7 +52,7 @@ public class SubjectServiceImpl implements SubjectService {
         SubjectDO existing = subjectMapper.selectById(updateReqVO.getId());
         SubjectDO nameCheck = subjectMapper.selectByUserIdAndName(existing.getUserId(), updateReqVO.getName());
         if (nameCheck != null && !nameCheck.getId().equals(updateReqVO.getId())) {
-            exception(SUBJECT_NAME_EXISTS);
+            throw exception(SUBJECT_NAME_EXISTS);
         }
 
         // 更新数据库
@@ -75,7 +75,7 @@ public class SubjectServiceImpl implements SubjectService {
     private SubjectDO validateSubjectExists(Long id) {
         SubjectDO subject = subjectMapper.selectById(id);
         if (subject == null) {
-            exception(SUBJECT_NOT_EXISTS);
+            throw exception(SUBJECT_NOT_EXISTS);
         }
         return subject;
     }

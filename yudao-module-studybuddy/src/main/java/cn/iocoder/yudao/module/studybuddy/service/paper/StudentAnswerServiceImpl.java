@@ -1,10 +1,12 @@
 package cn.iocoder.yudao.module.studybuddy.service.paper;
 
+import cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil;
 import cn.iocoder.yudao.module.studybuddy.controller.admin.paper.vo.StudentAnswerSubmitReqVO;
 import cn.iocoder.yudao.module.studybuddy.dal.dataobject.paper.QuestionDO;
 import cn.iocoder.yudao.module.studybuddy.dal.dataobject.paper.StudentAnswerDO;
 import cn.iocoder.yudao.module.studybuddy.dal.mysql.paper.QuestionMapper;
 import cn.iocoder.yudao.module.studybuddy.dal.mysql.paper.StudentAnswerMapper;
+import cn.iocoder.yudao.module.studybuddy.enums.ErrorCodeConstants;
 import cn.iocoder.yudao.module.studybuddy.service.paper.event.AnswerGradingEvent;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationContext;
@@ -15,6 +17,8 @@ import org.springframework.validation.annotation.Validated;
 import javax.annotation.Resource;
 import java.util.ArrayList;
 import java.util.List;
+
+import static cn.iocoder.yudao.framework.common.exception.util.ServiceExceptionUtil.exception;
 
 /**
  * 学生答案 Service 实现类
@@ -40,43 +44,50 @@ public class StudentAnswerServiceImpl implements StudentAnswerService {
     public Long submitAnswer(StudentAnswerSubmitReqVO submitReqVO) {
         log.info("[submitAnswer] 提交学生答案，题目ID: {}", submitReqVO.getQuestionId());
 
-        // 检查题目是否存在
-        QuestionDO question = questionMapper.selectById(submitReqVO.getQuestionId());
-        if (question == null) {
-            throw new IllegalArgumentException("题目不存在，ID: " + submitReqVO.getQuestionId());
-        }
+        try {
+            // 检查题目是否存在
+            QuestionDO question = questionMapper.selectById(submitReqVO.getQuestionId());
+            if (question == null) {
+                log.error("[submitAnswer] 题目不存在，题目ID: {}", submitReqVO.getQuestionId());
+                throw exception(ErrorCodeConstants.QUESTION_NOT_EXISTS);
+            }
 
-        // 检查是否已存在答案
-        StudentAnswerDO existingAnswer = studentAnswerMapper.selectByQuestionId(submitReqVO.getQuestionId());
-        if (existingAnswer != null) {
-            // 更新现有答案
-            existingAnswer.setRawAnswer(submitReqVO.getRawAnswer());
-            existingAnswer.setSource(submitReqVO.getSource() != null ? submitReqVO.getSource() : "MANUAL");
-            existingAnswer.setIsCorrect(null);
-            existingAnswer.setErrorAnalysis(null);
-            existingAnswer.setBetterSolution(null);
-            studentAnswerMapper.updateById(existingAnswer);
+            // 检查是否已存在答案
+            StudentAnswerDO existingAnswer = studentAnswerMapper.selectByQuestionId(submitReqVO.getQuestionId());
+            if (existingAnswer != null) {
+                // 更新现有答案
+                existingAnswer.setRawAnswer(submitReqVO.getRawAnswer());
+                existingAnswer.setSource(submitReqVO.getSource() != null ? submitReqVO.getSource() : "MANUAL");
+                existingAnswer.setIsCorrect(null);
+                existingAnswer.setErrorAnalysis(null);
+                existingAnswer.setBetterSolution(null);
+                studentAnswerMapper.updateById(existingAnswer);
+
+                // 触发批改
+                triggerGrading(submitReqVO.getQuestionId());
+
+                log.info("[submitAnswer] 学生答案更新完成，答案ID: {}", existingAnswer.getId());
+                return existingAnswer.getId();
+            }
+
+            // 创建新答案
+            StudentAnswerDO studentAnswer = StudentAnswerDO.builder()
+                    .questionId(submitReqVO.getQuestionId())
+                    .rawAnswer(submitReqVO.getRawAnswer())
+                    .source(submitReqVO.getSource() != null ? submitReqVO.getSource() : "MANUAL")
+                    .build();
+
+            studentAnswerMapper.insert(studentAnswer);
 
             // 触发批改
             triggerGrading(submitReqVO.getQuestionId());
 
-            return existingAnswer.getId();
+            log.info("[submitAnswer] 学生答案提交完成，答案ID: {}", studentAnswer.getId());
+            return studentAnswer.getId();
+        } catch (Exception e) {
+            log.error("[submitAnswer] 提交学生答案失败，题目ID: {}", submitReqVO.getQuestionId(), e);
+            throw e;
         }
-
-        // 创建新答案
-        StudentAnswerDO studentAnswer = StudentAnswerDO.builder()
-                .questionId(submitReqVO.getQuestionId())
-                .rawAnswer(submitReqVO.getRawAnswer())
-                .source(submitReqVO.getSource() != null ? submitReqVO.getSource() : "MANUAL")
-                .build();
-
-        studentAnswerMapper.insert(studentAnswer);
-
-        // 触发批改
-        triggerGrading(submitReqVO.getQuestionId());
-
-        log.info("[submitAnswer] 学生答案提交完成，答案ID: {}", studentAnswer.getId());
-        return studentAnswer.getId();
     }
 
     @Override

@@ -30,5 +30,6 @@ public interface ErrorCodeConstants {
     // ========== 错题本模块 1-024-000-000 ==========
     ErrorCode WRONG_BOOK_NOT_EXISTS = new ErrorCode(1_024_001_000, "错题不存在");
     ErrorCode WRONG_BOOK_EXPORT_FAILED = new ErrorCode(1_024_001_001, "错题本导出失败");
+    ErrorCode WRONG_BOOK_EXPORT_FORMAT_INVALID = new ErrorCode(1_024_001_002, "导出格式不支持，仅支持Word和PDF格式");
 
 }

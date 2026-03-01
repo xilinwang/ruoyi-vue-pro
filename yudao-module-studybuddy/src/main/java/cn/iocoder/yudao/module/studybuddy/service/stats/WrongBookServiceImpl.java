@@ -106,6 +106,17 @@ public class WrongBookServiceImpl implements WrongBookService {
 
     @Override
     public void exportWrongBook(Long userId, WrongBookExportReqVO reqVO, HttpServletResponse response) {
+        // 校验导出格式，只支持 Word 和 PDF
+        String format = reqVO.getFormat();
+        if (format == null || format.isEmpty()) {
+            format = "docx"; // 默认导出 Word 格式
+        }
+
+        // 只支持 docx 和 pdf 两种格式
+        if (!"pdf".equalsIgnoreCase(format) && !"docx".equalsIgnoreCase(format)) {
+            throw ServiceExceptionUtil.exception(ErrorCodeConstants.WRONG_BOOK_EXPORT_FORMAT_INVALID);
+        }
+
         // 获取要导出的错题列表
         List<WrongBookDO> wrongBooks;
         if (reqVO.getIds() != null && !reqVO.getIds().isEmpty()) {
@@ -123,7 +134,7 @@ public class WrongBookServiceImpl implements WrongBookService {
 
         // 导出
         try {
-            if ("pdf".equalsIgnoreCase(reqVO.getFormat())) {
+            if ("pdf".equalsIgnoreCase(format)) {
                 exportAsPdf(wrongBooks, response);
             } else {
                 exportAsDocx(wrongBooks, response);

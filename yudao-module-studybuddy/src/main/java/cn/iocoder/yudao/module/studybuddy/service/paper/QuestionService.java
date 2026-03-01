@@ -58,4 +58,12 @@ public interface QuestionService {
      */
     Long getUnverifiedCountByPaperId(Long paperId);
 
+    /**
+     * 获取试卷的题目数量
+     *
+     * @param paperId 试卷ID
+     * @return 题目数量
+     */
+    Long getQuestionCountByPaperId(Long paperId);
+
 }
