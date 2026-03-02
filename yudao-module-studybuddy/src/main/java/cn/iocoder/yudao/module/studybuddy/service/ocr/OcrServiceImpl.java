@@ -1,24 +1,31 @@
 package cn.iocoder.yudao.module.studybuddy.service.ocr;
 
-import cn.hutool.http.HttpRequest;
-import cn.hutool.http.HttpResponse;
+import cn.hutool.json.JSONArray;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import cn.iocoder.yudao.module.studybuddy.framework.ocr.config.OcrConfiguration;
+import com.aliyun.ocr_api20210707.Client;
+import com.aliyun.ocr_api20210707.models.RecognizeGeneralRequest;
+import com.aliyun.ocr_api20210707.models.RecognizeGeneralResponse;
+import com.aliyun.teaopenapi.models.Config;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import javax.annotation.PostConstruct;
 import javax.annotation.Resource;
 import java.io.File;
-import java.nio.file.Files;
-import java.util.HashMap;
-import java.util.Map;
+import java.io.FileInputStream;
+import java.io.FileWriter;
+import java.io.InputStream;
+import java.text.SimpleDateFormat;
+import java.util.Base64;
+import java.util.Date;
 
 /**
  * 阿里云 OCR 服务实现
  *
- * 使用阿里云读光OCR API进行试卷识别
+ * 使用阿里云读光 OCR API 进行试卷识别
  *
  * @author StudyBuddy
  */
@@ -26,13 +33,40 @@ import java.util.Map;
 @Slf4j
 public class OcrServiceImpl implements OcrService {
 
+    // OCR 日志目录
+    private static final String OCR_LOG_DIR = "./log";
+    private SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+    private SimpleDateFormat fileNameFormat = new SimpleDateFormat("yyyyMMdd_HHmmss");
+
     @Resource
     private OcrConfiguration ocrConfiguration;
 
     /**
-     * 阿里云 OCR API 识别请求Action
+     * 阿里云 OCR 客户端
      */
-    private static final String OCR_ACTION = "RecognizeGeneral";
+    private Client ocrClient;
+
+    /**
+     * 初始化阿里云 OCR 客户端
+     */
+    @PostConstruct
+    public void init() {
+        try {
+            if (StringUtils.hasText(ocrConfiguration.getAccessKeyId()) &&
+                StringUtils.hasText(ocrConfiguration.getAccessKeySecret())) {
+                Config config = new Config()
+                        .setAccessKeyId(ocrConfiguration.getAccessKeyId())
+                        .setAccessKeySecret(ocrConfiguration.getAccessKeySecret())
+                        .setEndpoint(ocrConfiguration.getEndpoint());
+                this.ocrClient = new Client(config);
+                log.info("[init] 阿里云 OCR 客户端初始化成功");
+            } else {
+                log.warn("[init] 阿里云 OCR 配置缺失，将使用模拟数据");
+            }
+        } catch (Exception e) {
+            log.error("[init] 阿里云 OCR 客户端初始化失败", e);
+        }
+    }
 
     @Override
     public String recognizePaper(String imageFilePath) {
@@ -53,25 +87,33 @@ public class OcrServiceImpl implements OcrService {
 
         try {
             // 检查配置
-            if (!StringUtils.hasText(ocrConfiguration.getAccessKeyId()) ||
-                !StringUtils.hasText(ocrConfiguration.getAccessKeySecret())) {
-                log.warn("[recognizePaperForEducation] Aliyun OCR 配置缺失，使用模拟数据");
+            if (ocrClient == null) {
+                log.warn("[recognizePaperForEducation] 阿里云 OCR 客户端未初始化，使用模拟数据");
                 return createMockResponse(imageFilePath);
             }
 
-            // 检查文件是否存在
+            // 检查是本地文件还是网络 URL
+            boolean isUrl = imageFilePath.startsWith("http://") || imageFilePath.startsWith("https://");
+            log.info("[URL检查] 是否为URL: {}, 文件路径: {}", isUrl, imageFilePath);
             File imageFile = new File(imageFilePath);
-            if (!imageFile.exists()) {
-                log.error("[recognizePaperForEducation] 文件不存在: {}", imageFilePath);
+
+            // 对于本地文件，检查是否存在
+            if (!isUrl && !imageFile.exists()) {
+                log.error("[recognizePaperForEducation] 本地文件不存在: {}", imageFilePath);
                 return createMockResponse(imageFilePath);
             }
 
-            // 读取图片文件
-            byte[] imageBytes = Files.readAllBytes(imageFile.toPath());
-            String base64Image = java.util.Base64.getEncoder().encodeToString(imageBytes);
+            // 判断文件类型
+            String lowerPath = imageFilePath.toLowerCase();
+            String ocrText;
 
-            // 调用阿里云 OCR API
-            String ocrText = callAliyunOcrApi(base64Image, imageFile.getName());
+            if (lowerPath.endsWith(".pdf")) {
+                // PDF 文件处理
+                ocrText = recognizePdfFile(imageFilePath, isUrl);
+            } else {
+                // 图片文件处理（JPG, JPEG, PNG）
+                ocrText = recognizeImageFile(imageFilePath, isUrl);
+            }
 
             log.info("[recognizePaperForEducation] OCR 识别完成，文本长度: {}", ocrText != null ? ocrText.length() : 0);
             return ocrText;
@@ -85,37 +127,228 @@ public class OcrServiceImpl implements OcrService {
     }
 
     /**
-     * 调用阿里云 OCR API
+     * 识别图片文件
+     * @param imageFilePath 原始文件路径（可能是 URL 或本地路径）
+     * @param isUrl 是否为网络URL
      */
-    private String callAliyunOcrApi(String base64Image, String fileName) throws Exception {
-        // 构建请求参数
-        Map<String, Object> requestBody = new HashMap<>();
-        requestBody.put("image", base64Image);
+    private String recognizeImageFile(String imageFilePath, boolean isUrl) throws Exception {
+        log.info("[recognizeImageFile] 识别图片文件: {}, 是否为URL: {}", imageFilePath, isUrl);
 
-        // 根据文件扩展名设置格式
-        String format = "jpg";
-        String lowerFileName = fileName.toLowerCase();
-        if (lowerFileName.endsWith(".png")) {
-            format = "png";
-        } else if (lowerFileName.endsWith(".pdf")) {
-            format = "pdf";
-        } else if (lowerFileName.endsWith(".jpeg")) {
-            format = "jpg";
+        // 从路径中提取文件名
+        String fileName = isUrl ?
+            imageFilePath.substring(imageFilePath.lastIndexOf('/') + 1) :
+            new File(imageFilePath).getName();
+
+        String logFileName = "ocr_" + fileNameFormat.format(new Date()) + ".log";
+        String logFilePath = OCR_LOG_DIR + "/" + logFileName;
+
+        // 确保日志目录存在
+        File logDir = new File(OCR_LOG_DIR);
+        if (!logDir.exists()) {
+            logDir.mkdirs();
         }
-        requestBody.put("format", format);
 
-        log.info("[callAliyunOcrApi] 调用阿里云 OCR API，文件名: {}, 格式: {}", fileName, format);
+        // 写入请求日志
+        writeOcrLog(logFilePath, "========== 阿里云 OCR 请求日志 ==========");
+        writeOcrLog(logFilePath, "时间: " + dateFormat.format(new Date()));
+        writeOcrLog(logFilePath, "文件路径: " + imageFilePath);
+        writeOcrLog(logFilePath, "是否为URL: " + isUrl);
+        writeOcrLog(logFilePath, "文件类型: IMAGE");
 
-        // 注意：阿里云 OCR API 使用 RPC 风格的 API，需要签名认证
-        // 由于签名计算复杂，这里提供一个简化的实现框架
-        // 实际使用时需要：
-        // 1. 使用阿里云 SDK 或者
-        // 2. 手动计算 RPC 签名（比较复杂）
-        // 3. 使用代理服务
+        // 统一使用 Base64 方式：将 URL 或本地文件都转换为 base64
+        String base64Data;
+        if (isUrl) {
+            // 对于网络 URL，先下载文件
+            try {
+                log.info("[recognizeImageFile] 从网络下载图片: {}", imageFilePath);
+                java.net.URL url = new java.net.URL(imageFilePath);
+                byte[] imageBytes = cn.hutool.core.io.IoUtil.readBytes(url.openStream());
+                String mimeType = getMimeType(fileName);
+                base64Data = "data:" + mimeType + ";base64," + Base64.getEncoder().encodeToString(imageBytes);
+                writeOcrLog(logFilePath, "图片下载成功，大小: " + imageBytes.length + " bytes");
+            } catch (Exception e) {
+                log.error("[recognizeImageFile] 图片下载失败: {}", imageFilePath, e);
+                throw e;
+            }
+        } else {
+            // 本地文件，读取并转换为 base64
+            File imageFile = new File(imageFilePath);
+            byte[] imageBytes = java.nio.file.Files.readAllBytes(imageFile.toPath());
+            String mimeType = getMimeType(fileName);
+            base64Data = "data:" + mimeType + ";base64," + Base64.getEncoder().encodeToString(imageBytes);
+            writeOcrLog(logFilePath, "文件大小: " + imageBytes.length + " bytes");
+        }
 
-        // 当前实现：返回模拟数据，提示需要完整实现
-        log.warn("[callAliyunOcrApi] 阿里云 OCR API 调用需要完整实现签名认证，使用模拟数据");
-        return createMockResponse(fileName);
+        // 提取 base64 数据（去掉 data:xxx;base64, 前缀）
+        String bodyContent = base64Data;
+        if (base64Data.contains(",")) {
+            bodyContent = base64Data.substring(base64Data.indexOf(",") + 1);
+        }
+        byte[] decodedBytes = Base64.getDecoder().decode(bodyContent);
+
+        // 构建请求
+        writeOcrLog(logFilePath, "请求模型:阿里云读光通用OCR");
+        writeOcrLog(logFilePath, "请求内容长度: " + decodedBytes.length + " bytes");
+
+        RecognizeGeneralRequest request = new RecognizeGeneralRequest()
+                .setBody(new java.io.ByteArrayInputStream(decodedBytes));
+
+        // 记录请求发送时间
+        long startTime = System.currentTimeMillis();
+        writeOcrLog(logFilePath, "请求发送时间: " + dateFormat.format(new Date(startTime)));
+
+        // 调用 API
+        try {
+            RecognizeGeneralResponse response = ocrClient.recognizeGeneral(request);
+
+            // 记录响应时间
+            long endTime = System.currentTimeMillis();
+            long duration = endTime - startTime;
+            writeOcrLog(logFilePath, "响应接收时间: " + dateFormat.format(new Date(endTime)));
+            writeOcrLog(logFilePath, "请求耗时: " + duration + " ms");
+            writeOcrLog(logFilePath, "响应状态码: " + response.getStatusCode());
+
+            // 检查响应体
+            if (response.getBody() != null) {
+                writeOcrLog(logFilePath, "响应体存在: 是");
+                String dataStr = response.getBody().getData();
+                if (dataStr != null) {
+                    writeOcrLog(logFilePath, "响应数据长度: " + dataStr.length() + " 字符");
+
+                    // 写入部分响应数据用于调试
+                    String previewData = dataStr.length() > 500 ? dataStr.substring(0, 500) + "..." : dataStr;
+                    writeOcrLog(logFilePath, "响应数据预览:\n" + previewData);
+                } else {
+                    writeOcrLog(logFilePath, "响应数据: null");
+                }
+            } else {
+                writeOcrLog(logFilePath, "响应体: null");
+            }
+
+            // 解析响应
+            String result = parseOcrResponse(response.getBody().getData());
+            writeOcrLog(logFilePath, "解析后文本长度: " + (result != null ? result.length() : 0));
+            writeOcrLog(logFilePath, "解析后文本预览:\n" + (result != null && result.length() > 200 ? result.substring(0, 200) + "..." : result));
+            writeOcrLog(logFilePath, "========== OCR 请求完成 ==========");
+            writeOcrLog(logFilePath, "");
+
+            return result;
+        } catch (Exception e) {
+            writeOcrLog(logFilePath, "OCR 调用异常: " + e.getMessage());
+            writeOcrLog(logFilePath, "异常堆栈: ");
+            java.io.StringWriter sw = new java.io.StringWriter();
+            e.printStackTrace(new java.io.PrintWriter(sw));
+            writeOcrLog(logFilePath, sw.toString());
+            writeOcrLog(logFilePath, "========== OCR 请求失败 ==========");
+            writeOcrLog(logFilePath, "");
+            throw e;
+        }
+    }
+
+    /**
+     * 识别 PDF 文件
+     * @param pdfFilePath 原始文件路径（可能是 URL 或本地路径）
+     * @param isUrl 是否为网络URL
+     */
+    private String recognizePdfFile(String pdfFilePath, boolean isUrl) throws Exception {
+        log.info("[recognizePdfFile] 识别 PDF 文件: {}, 是否为URL: {}", pdfFilePath, isUrl);
+
+        String base64Pdf;
+        if (isUrl) {
+            // 对于网络 URL，需要先下载文件
+            log.info("[recognizePdfFile] 从网络下载 PDF 文件...");
+            java.net.URL url = new java.net.URL(pdfFilePath);
+            try (InputStream inputStream = url.openStream()) {
+                byte[] pdfBytes = inputStream.readAllBytes();
+                base64Pdf = Base64.getEncoder().encodeToString(pdfBytes);
+                log.info("[recognizePdfFile] 下载完成，文件大小: {} bytes", pdfBytes.length);
+            }
+        } else {
+            // 本地文件，读取流
+            try (InputStream inputStream = new FileInputStream(pdfFilePath)) {
+                byte[] pdfBytes = inputStream.readAllBytes();
+                base64Pdf = Base64.getEncoder().encodeToString(pdfBytes);
+            }
+        }
+
+        // 构建请求
+        byte[] decodedPdfBytes = Base64.getDecoder().decode(base64Pdf);
+        RecognizeGeneralRequest request = new RecognizeGeneralRequest()
+                .setBody(new java.io.ByteArrayInputStream(decodedPdfBytes));
+
+        // 调用 API
+        RecognizeGeneralResponse response = ocrClient.recognizeGeneral(request);
+
+        // 解析响应
+        return parseOcrResponse(response.getBody().getData());
+    }
+
+    /**
+     * 解析 OCR 响应数据
+     */
+    private String parseOcrResponse(String data) {
+        if (!StringUtils.hasText(data)) {
+            log.warn("[parseOcrResponse] OCR 响应数据为空");
+            return "";
+        }
+
+        try {
+            // 解析 JSON 响应
+            JSONObject jsonData = JSONUtil.parseObj(data);
+            StringBuilder result = new StringBuilder();
+
+            // 提取文本内容
+            // 阿里云 OCR 返回的格式通常是 {"prism_wordsInfo": [{"word": "xxx"}, ...]}
+            JSONArray wordsInfo = jsonData.getJSONArray("prism_wordsInfo");
+            if (wordsInfo != null && !wordsInfo.isEmpty()) {
+                for (int i = 0; i < wordsInfo.size(); i++) {
+                    JSONObject wordInfo = wordsInfo.getJSONObject(i);
+                    String word = wordInfo.getStr("word");
+                    if (StringUtils.hasText(word)) {
+                        result.append(word).append("\n");
+                    }
+                }
+            } else {
+                // 如果标准格式解析失败，尝试直接使用原始数据
+                result.append(data);
+            }
+
+            return result.toString();
+
+        } catch (Exception e) {
+            log.warn("[parseOcrResponse] 解析 OCR 响应失败，返回原始数据", e);
+            return data;
+        }
+    }
+
+    /**
+     * 写入 OCR 日志到文件
+     */
+    private void writeOcrLog(String logFilePath, String content) {
+        try (FileWriter writer = new FileWriter(logFilePath, true)) {
+            writer.write(content + "\n");
+        } catch (Exception e) {
+            log.error("[writeOcrLog] 写入日志失败: {}", logFilePath, e);
+        }
+    }
+
+    /**
+     * 获取文件的 MIME 类型
+     */
+    private String getMimeType(String fileName) {
+        String lowerName = fileName.toLowerCase();
+        if (lowerName.endsWith(".png")) {
+            return "image/png";
+        } else if (lowerName.endsWith(".gif")) {
+            return "image/gif";
+        } else if (lowerName.endsWith(".bmp")) {
+            return "image/bmp";
+        } else if (lowerName.endsWith(".webp")) {
+            return "image/webp";
+        } else {
+            // 默认 JPEG
+            return "image/jpeg";
+        }
     }
 
     /**

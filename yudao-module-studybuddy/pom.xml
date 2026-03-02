@@ -85,8 +85,8 @@
         <!-- 阿里云 OCR SDK -->
         <dependency>
             <groupId>com.aliyun</groupId>
-            <artifactId>alibabacloud-ocr_api20210707</artifactId>
-            <version>3.0.4</version>
+            <artifactId>ocr_api20210707</artifactId>
+            <version>3.0.0</version>
         </dependency>
 
     </dependencies>

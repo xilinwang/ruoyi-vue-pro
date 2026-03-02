@@ -214,6 +214,21 @@ studybuddy:
       base-url: ${QWEN_BASE_URL:https://apis.iflow.cn/v1} # Qwen API 地址
       model: ${QWEN_MODEL:qwen3-max} # 模型名称
     timeout: 120 # 超时时间（秒）
+  file:
+    # 文件存储配置
+    # storage: local 表示本地存储，minio 表示 MinIO 对象存储
+    storage: ${FILE_STORAGE:local}
+    # 本地存储配置
+    local:
+      base-path: ${FILE_LOCAL_PATH:/home/wxl/data/studybuddy-files} # 本地文件存储根目录
+      domain: ${FILE_LOCAL_DOMAIN:http://localhost:48080} # 本地文件访问域名
+    # MinIO 存储配置（需要先部署 MinIO 服务）
+    minio:
+      endpoint: ${MINIO_ENDPOINT:http://127.0.0.1:9000} # MinIO 服务端点
+      bucket: ${MINIO_BUCKET:studybuddy} # 存储桶名称
+      access-key: ${MINIO_ACCESS_KEY:} # Access Key
+      secret-key: ${MINIO_SECRET_KEY:} # Secret Key
+      domain: ${MINIO_DOMAIN:} # 自定义访问域名（可选）
 
 # JustAuth 第三方登录配置已禁用（StudyBuddy 未使用）
 # justauth:
