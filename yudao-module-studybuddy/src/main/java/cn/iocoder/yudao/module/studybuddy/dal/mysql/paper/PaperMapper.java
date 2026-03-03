@@ -7,6 +7,8 @@ import cn.iocoder.yudao.module.studybuddy.controller.admin.paper.vo.PaperPageReq
 import cn.iocoder.yudao.module.studybuddy.dal.dataobject.paper.PaperDO;
 import cn.iocoder.yudao.module.studybuddy.enums.paper.PaperStatusEnum;
 import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
 
 import java.util.List;
 
@@ -47,6 +49,16 @@ public interface PaperMapper extends BaseMapperX<PaperDO> {
     default List<PaperDO> selectListByStatus(String status) {
         return selectList(PaperDO::getStatus, status);
     }
+
+    /**
+     * 查询指定科目代码下符合新格式（科目代码+8位数字）的试卷数量
+     *
+     * @param subjectCode 科目代码
+     * @param codeLength  科目代码长度
+     * @return 符合格式的试卷数量
+     */
+    @Select("SELECT COUNT(*) FROM study_paper WHERE deleted = false AND paper_no LIKE CONCAT(#{subjectCode}, '%') AND LENGTH(paper_no) = #{codeLength} + 8")
+    long selectCountByNewFormat(@Param("subjectCode") String subjectCode, @Param("codeLength") int codeLength);
 
     /**
      * 分页查询试卷

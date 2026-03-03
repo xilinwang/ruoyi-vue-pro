@@ -12,6 +12,7 @@ import cn.iocoder.yudao.module.studybuddy.dal.mysql.paper.QuestionMapper;
 import cn.iocoder.yudao.module.studybuddy.enums.paper.PaperStatusEnum;
 import cn.iocoder.yudao.module.studybuddy.service.paper.event.PaperAnalyzeEvent;
 import cn.iocoder.yudao.module.studybuddy.service.paper.event.PaperOcrEvent;
+import cn.iocoder.yudao.module.studybuddy.service.subject.SubjectService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
@@ -46,7 +47,13 @@ public class PaperServiceImpl implements PaperService {
     private PaperFileService paperFileService;
 
     @Resource
+    private SubjectService subjectService;
+
+    @Resource
     private ApplicationEventPublisher eventPublisher;
+
+    @Resource
+    private cn.iocoder.yudao.module.studybuddy.framework.file.service.StudyBuddyFileService studyBuddyFileService;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -54,7 +61,7 @@ public class PaperServiceImpl implements PaperService {
         // 自动生成试卷编号（如果未提供）
         String paperNo = createReqVO.getPaperNo();
         if (paperNo == null || paperNo.trim().isEmpty()) {
-            paperNo = generatePaperNo(createReqVO.getSubject(), createReqVO.getTitle());
+            paperNo = generatePaperNo(createReqVO.getSubjectId());
         } else {
             // 校验试卷编号唯一性
             validatePaperNoUnique(null, paperNo);
@@ -66,12 +73,18 @@ public class PaperServiceImpl implements PaperService {
             studentId = 1L;
         }
 
+        // 解析科目名称（如果提供了科目ID但未提供科目名称）
+        String subjectName = createReqVO.getSubject();
+        if (createReqVO.getSubjectId() != null && (subjectName == null || subjectName.trim().isEmpty())) {
+            subjectName = subjectService.getSubject(createReqVO.getSubjectId()).getName();
+        }
+
         // 插入数据库
         PaperDO paper = PaperDO.builder()
                 .paperNo(paperNo)
                 .studentId(studentId)
                 .subjectId(createReqVO.getSubjectId())
-                .subject(createReqVO.getSubject())
+                .subject(subjectName)
                 .title(createReqVO.getTitle())
                 .description(createReqVO.getDescription())
                 .examDate(createReqVO.getExamDate())
@@ -94,51 +107,54 @@ public class PaperServiceImpl implements PaperService {
 
     /**
      * 生成试卷编号
-     * 格式: 科目拼音首字母 + 年月日 + 4位序号
-     * 例如: MATH20250127001
+     * 规则: 科目代码 + 8位数字序号（从00000001开始）
+     * 例如: MATH00000001, CHIN00000002
+     * 每个科目代号独立编号，从1开始递增
+     * 注意：只匹配11位长度的编号（科目代码3位 + 8位数字）
      */
-    private String generatePaperNo(String subject, String title) {
-        // 获取当前日期
-        String dateStr = java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd"));
-
-        // 科目代码（默认使用UNKNOWN）
-        String subjectCode = "UNK";
-        if (subject != null && !subject.trim().isEmpty()) {
-            // 简单的科目代码映射
-            String[] subjects = {"数学", "语文", "英语", "物理", "化学", "生物", "历史", "地理", "政治"};
-            String[] codes = {"MATH", "CHIN", "ENG", "PHYS", "CHEM", "BIO", "HIST", "GEO", "POLI"};
-            for (int i = 0; i < subjects.length; i++) {
-                if (subject.contains(subjects[i])) {
-                    subjectCode = codes[i];
-                    break;
+    private String generatePaperNo(Long subjectId) {
+        // 获取科目代号
+        String subjectCode = "SUB";
+        if (subjectId != null) {
+            try {
+                cn.iocoder.yudao.module.studybuddy.dal.dataobject.subject.SubjectDO subject =
+                        subjectService.getSubject(subjectId);
+                if (subject != null && subject.getCode() != null && !subject.getCode().isEmpty()) {
+                    subjectCode = subject.getCode().toUpperCase();
                 }
+            } catch (Exception e) {
+                // 如果获取失败，使用默认代号
             }
         }
 
-        // 查询当天已有的试卷数量，生成序号
-        int count = Math.toIntExact(paperMapper.selectCount(
-                new LambdaQueryWrapper<PaperDO>()
-                        .ge(PaperDO::getCreateTime, java.time.LocalDate.now().atStartOfDay())));
-        String seqNo = String.format("%04d", count + 1);
+        // 查询该科目代号下符合新格式（科目代码+8位数字）的试卷数量
+        Long count = paperMapper.selectCountByNewFormat(subjectCode, subjectCode.length());
 
-        return subjectCode + dateStr + seqNo;
+        String seqNo = String.format("%08d", count + 1);
+        return subjectCode + seqNo;
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void updatePaper(PaperUpdateReqVO updateReqVO) {
         // 校验存在
-        validatePaperExists(updateReqVO.getId());
-        // 校验试卷编号唯一性
+        PaperDO existingPaper = validatePaperExists(updateReqVO.getId());
+        // 校验试卷编号唯一性（仅在传了 paperNo 时校验）
         validatePaperNoUnique(updateReqVO.getId(), updateReqVO.getPaperNo());
 
-        // 更新数据库
+        // 解析科目名称（如果提供了科目ID）
+        String subjectName = updateReqVO.getSubject();
+        if (updateReqVO.getSubjectId() != null && subjectName == null) {
+            subjectName = subjectService.getSubject(updateReqVO.getSubjectId()).getName();
+        }
+
+        // 更新数据库（如果 paperNo 为空，保留原有的 paperNo）
         PaperDO updateObj = PaperDO.builder()
                 .id(updateReqVO.getId())
-                .paperNo(updateReqVO.getPaperNo())
+                .paperNo(updateReqVO.getPaperNo() != null ? updateReqVO.getPaperNo() : existingPaper.getPaperNo())
                 .studentId(updateReqVO.getStudentId())
                 .subjectId(updateReqVO.getSubjectId())
-                .subject(updateReqVO.getSubject())
+                .subject(subjectName)
                 .title(updateReqVO.getTitle())
                 .description(updateReqVO.getDescription())
                 .examDate(updateReqVO.getExamDate())
@@ -148,9 +164,28 @@ public class PaperServiceImpl implements PaperService {
                 .build();
         paperMapper.updateById(updateObj);
 
-        // 处理新增的文件
-        if (updateReqVO.getFiles() != null && !updateReqVO.getFiles().isEmpty()) {
-            paperFileService.batchCreatePaperFiles(updateReqVO.getId(), updateReqVO.getFiles());
+        // 处理文件更新（如果提供了文件列表）
+        log.info("[updatePaper] files 参数: {}, 是否为 null: {}", 
+                updateReqVO.getFiles() != null ? "size=" + updateReqVO.getFiles().size() : "null",
+                updateReqVO.getFiles() == null);
+        if (updateReqVO.getFiles() != null) {
+            // 获取当前试卷的所有文件
+            List<cn.iocoder.yudao.module.studybuddy.dal.dataobject.paper.PaperFileDO> currentFiles =
+                    paperFileService.getPaperFilesByPaperId(updateReqVO.getId());
+            log.info("[updatePaper] 当前文件数量: {}", currentFiles.size());
+
+            // 简化策略：删除所有现有文件，再添加新文件列表
+            // 这样可以正确处理重复路径的文件数量变化
+            for (cn.iocoder.yudao.module.studybuddy.dal.dataobject.paper.PaperFileDO currentFile : currentFiles) {
+                log.info("[updatePaper] 删除试卷文件，文件ID: {}, 路径: {}", currentFile.getId(), currentFile.getFilePath());
+                paperFileService.deletePaperFile(currentFile.getId());
+            }
+
+            // 添加新文件列表
+            if (!updateReqVO.getFiles().isEmpty()) {
+                log.info("[updatePaper] 添加新试卷文件，数量: {}", updateReqVO.getFiles().size());
+                paperFileService.batchCreatePaperFiles(updateReqVO.getId(), updateReqVO.getFiles());
+            }
         }
 
         log.info("[updatePaper] 更新试卷成功，试卷ID: {}", updateReqVO.getId());
@@ -236,9 +271,9 @@ public class PaperServiceImpl implements PaperService {
         // 更新状态为OCR处理中
         updatePaperStatus(id, PaperStatusEnum.OCR_PROCESSING.getCode());
 
-        // 发布OCR事件
+        // 发布OCR事件 - 使用阿里云读光 OCR
         String filePath = !files.isEmpty() ? files.get(0).getFilePath() : paper.getFilePath();
-        String ocrModel = paper.getOcrModel() != null ? paper.getOcrModel() : "aliyun";
+        String ocrModel = "aliyun";
         eventPublisher.publishEvent(new PaperOcrEvent(id, filePath, ocrModel));
 
         log.info("[triggerOcr] 触发OCR识别成功，试卷ID: {}, 文件路径: {}, OCR模型: {}", id, filePath, ocrModel);
@@ -297,6 +332,10 @@ public class PaperServiceImpl implements PaperService {
      * 校验试卷编号唯一性
      */
     private void validatePaperNoUnique(Long id, String paperNo) {
+        // 如果 paperNo 为空，跳过校验（编辑时可能不传 paperNo）
+        if (paperNo == null || paperNo.trim().isEmpty()) {
+            return;
+        }
         PaperDO existing = paperMapper.selectByPaperNo(paperNo);
         if (existing == null) {
             return;

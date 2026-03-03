@@ -37,6 +37,11 @@ public class SubjectDO extends TenantBaseDO {
     private String name;
 
     /**
+     * 科目代号（用于生成试卷编号），如：MATH, CHINESE, ENGLISH
+     */
+    private String code;
+
+    /**
      * 科目描述
      */
     private String description;
