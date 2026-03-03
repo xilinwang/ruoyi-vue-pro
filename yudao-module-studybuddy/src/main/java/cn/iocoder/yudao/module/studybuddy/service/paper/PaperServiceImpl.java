@@ -52,9 +52,6 @@ public class PaperServiceImpl implements PaperService {
     @Resource
     private ApplicationEventPublisher eventPublisher;
 
-    @Resource
-    private cn.iocoder.yudao.module.studybuddy.framework.file.service.StudyBuddyFileService studyBuddyFileService;
-
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Long createPaper(PaperCreateReqVO createReqVO) {

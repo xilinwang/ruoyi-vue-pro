@@ -65,7 +65,10 @@ public class SystemConfigServiceImpl implements SystemConfigService {
 
     @Override
     public void setConfigValue(String configKey, String configValue) {
-        updateConfig(new SystemConfigUpdateReqVO().setConfigKey(configKey).setConfigValue(configValue));
+        SystemConfigUpdateReqVO reqVO = new SystemConfigUpdateReqVO();
+        reqVO.setConfigKey(configKey);
+        reqVO.setConfigValue(configValue);
+        updateConfig(reqVO);
     }
 
     private SystemConfigRespVO convertToRespVO(SystemConfigDO config) {

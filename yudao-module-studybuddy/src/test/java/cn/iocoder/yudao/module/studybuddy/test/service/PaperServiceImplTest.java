@@ -8,6 +8,7 @@ import cn.iocoder.yudao.module.studybuddy.dal.mysql.paper.PaperMapper;
 import cn.iocoder.yudao.module.studybuddy.enums.paper.PaperStatusEnum;
 import cn.iocoder.yudao.module.studybuddy.service.paper.PaperFileServiceImpl;
 import cn.iocoder.yudao.module.studybuddy.service.paper.PaperServiceImpl;
+import cn.iocoder.yudao.module.studybuddy.service.subject.SubjectServiceImpl;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.event.ApplicationEvents;
@@ -26,7 +27,7 @@ import static org.junit.jupiter.api.Assertions.*;
  *
  * @author StudyBuddy
  */
-@Import({PaperServiceImpl.class, PaperFileServiceImpl.class})
+@Import({PaperServiceImpl.class, PaperFileServiceImpl.class, SubjectServiceImpl.class})
 @RecordApplicationEvents
 public class PaperServiceImplTest extends BaseDbUnitTest {
 
@@ -74,8 +75,8 @@ public class PaperServiceImplTest extends BaseDbUnitTest {
         assertNotNull(paperId);
         PaperDO paperDO = paperMapper.selectById(paperId);
         assertNotNull(paperDO.getPaperNo());
-        // 验证格式：科目代码 + 日期 + 序号
-        assertTrue(paperDO.getPaperNo().matches(".*\\d{8}\\d{4}"));
+        // 验证格式：科目代码 + 8位数字序号（如 SUB00000001）
+        assertTrue(paperDO.getPaperNo().matches("^SUB\\d{8}$"), "试卷编号格式应为 SUB + 8位数字: " + paperDO.getPaperNo());
     }
 
     @Test
