@@ -271,9 +271,12 @@ public class PaperServiceImpl implements PaperService {
         // 发布OCR事件 - 使用阿里云读光 OCR
         String filePath = !files.isEmpty() ? files.get(0).getFilePath() : paper.getFilePath();
         String ocrModel = "aliyun";
-        eventPublisher.publishEvent(new PaperOcrEvent(id, filePath, ocrModel));
+        // 获取试卷科目，传递给OCR服务
+        String subject = paper.getSubject();
+        eventPublisher.publishEvent(new PaperOcrEvent(id, filePath, ocrModel, subject));
 
-        log.info("[triggerOcr] 触发OCR识别成功，试卷ID: {}, 文件路径: {}, OCR模型: {}", id, filePath, ocrModel);
+        log.info("[triggerOcr] 触发OCR识别成功，试卷ID: {}, 文件路径: {}, OCR模型: {}, 科目: {}",
+                id, filePath, ocrModel, subject);
     }
 
     @Override

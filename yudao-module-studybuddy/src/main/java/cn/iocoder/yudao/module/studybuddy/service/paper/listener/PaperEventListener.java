@@ -56,15 +56,16 @@ public class PaperEventListener {
     @EventListener
     @Async(StudyBuddyJobConfiguration.STUDYBUDDY_TASK_EXECUTOR)
     public void handlePaperOcrEvent(PaperOcrEvent event) {
-        log.info("[handlePaperOcrEvent] 开始处理 OCR，试卷ID: {}, 文件路径: {}, OCR模型: {}",
-                 event.getPaperId(), event.getFilePath(), event.getOcrModel());
+        log.info("[handlePaperOcrEvent] 开始处理 OCR，试卷ID: {}, 文件路径: {}, OCR模型: {}, 科目: {}",
+                 event.getPaperId(), event.getFilePath(), event.getOcrModel(), event.getSubject());
 
         try {
             // 根据模型选择 OCR 服务
             OcrService ocrService = ocrServiceFactory.getOcrService(event.getOcrModel());
 
-            // 1. 执行 OCR 识别
-            String ocrResult = ocrService.recognizePaperWithModel(event.getFilePath(), event.getOcrModel());
+            // 1. 执行 OCR 识别（带科目参数）
+            String ocrResult = ocrService.recognizePaperWithModelAndSubject(
+                    event.getFilePath(), event.getOcrModel(), event.getSubject());
 
             // 2. 调用 LLM 解析题目结构
             String questionsJson = llmService.parseQuestionStructure(ocrResult);

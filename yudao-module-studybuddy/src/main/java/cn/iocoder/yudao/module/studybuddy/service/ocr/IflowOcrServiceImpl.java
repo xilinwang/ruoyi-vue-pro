@@ -44,20 +44,26 @@ public class IflowOcrServiceImpl implements OcrService {
 
     @Override
     public String recognizePaperWithModel(String imageFilePath, String ocrModel) {
-        log.info("[recognizePaperWithModel] 开始 iFlow OCR 识别，文件路径: {}, 模型: {}", imageFilePath, ocrModel);
+        return recognizePaperWithModelAndSubject(imageFilePath, ocrModel, null);
+    }
+
+    @Override
+    public String recognizePaperWithModelAndSubject(String imageFilePath, String ocrModel, String subject) {
+        log.info("[recognizePaperWithModelAndSubject] 开始 iFlow OCR 识别，文件路径: {}, 模型: {}, 科目: {}",
+                imageFilePath, ocrModel, subject);
 
         try {
             // 检查配置
             if (!StringUtils.hasText(iflowOcrConfiguration.getApiKey())) {
-                log.warn("[recognizePaperWithModel] iFlow OCR API Key 未配置，使用模拟数据");
-                return createMockResponse(imageFilePath);
+                log.error("[recognizePaperWithModelAndSubject] iFlow OCR API Key 未配置，OCR服务不可用");
+                throw new RuntimeException("iFlow OCR API Key 未配置，OCR服务不可用");
             }
 
             // 检查文件是否存在
             File imageFile = new File(imageFilePath);
             if (!imageFile.exists()) {
-                log.error("[recognizePaperWithModel] 文件不存在: {}", imageFilePath);
-                return createMockResponse(imageFilePath);
+                log.error("[recognizePaperWithModelAndSubject] 文件不存在: {}", imageFilePath);
+                throw new RuntimeException("文件不存在: " + imageFilePath);
             }
 
             // 读取图片文件并转换为 Base64
@@ -69,31 +75,32 @@ public class IflowOcrServiceImpl implements OcrService {
             String imageDataUrl = "data:" + mimeType + ";base64," + base64Image;
 
             // 调用 iFlow API
-            String ocrText = callIflowApi(imageDataUrl, imageFile.getName());
+            String ocrText = callIflowApi(imageDataUrl, imageFile.getName(), subject);
 
-            log.info("[recognizePaperWithModel] iFlow OCR 识别完成，文本长度: {}", ocrText != null ? ocrText.length() : 0);
+            log.info("[recognizePaperWithModelAndSubject] iFlow OCR 识别完成，文本长度: {}",
+                    ocrText != null ? ocrText.length() : 0);
             return ocrText;
 
         } catch (Exception e) {
-            log.error("[recognizePaperWithModel] iFlow OCR 识别失败，文件路径: {}", imageFilePath, e);
-            log.warn("[recognizePaperWithModel] OCR 失败，使用模拟数据继续流程");
-            return createMockResponse(imageFilePath);
+            log.error("[recognizePaperWithModelAndSubject] iFlow OCR 识别失败，文件路径: {}", imageFilePath, e);
+            // 直接抛出异常，不再使用模拟数据
+            throw new RuntimeException("iFlow OCR 识别失败: " + e.getMessage(), e);
         }
     }
 
     /**
      * 调用 iFlow API (OpenAI 兼容格式)
      */
-    private String callIflowApi(String imageDataUrl, String fileName) throws Exception {
+    private String callIflowApi(String imageDataUrl, String fileName, String subject) throws Exception {
         String apiUrl = iflowOcrConfiguration.getBaseUrl() + "/chat/completions";
         String model = iflowOcrConfiguration.getModel();
 
-        log.info("[callIflowApi] 调用 iFlow API，URL: {}, Model: {}", apiUrl, model);
+        log.info("[callIflowApi] 调用 iFlow API，URL: {}, Model: {}, Subject: {}", apiUrl, model, subject);
 
         // 构建请求体 (OpenAI Vision API 格式)
         Map<String, Object> requestBody = new HashMap<>();
         requestBody.put("model", model);
-        requestBody.put("messages", createVisionMessages(imageDataUrl));
+        requestBody.put("messages", createVisionMessages(imageDataUrl, subject));
         requestBody.put("max_tokens", 4096);
 
         String jsonBody = JSONUtil.toJsonStr(requestBody);
@@ -125,13 +132,20 @@ public class IflowOcrServiceImpl implements OcrService {
     /**
      * 创建视觉识别请求消息
      */
-    private List<Map<String, Object>> createVisionMessages(String imageDataUrl) {
+    private List<Map<String, Object>> createVisionMessages(String imageDataUrl, String subject) {
         List<Map<String, Object>> messages = new ArrayList<>();
+
+        // 构建系统消息，包含科目信息
+        String systemPrompt = "你是一个专业的教育试卷识别助手。请仔细识别图片中的试卷内容，包括所有题目、选项、答案区域等。";
+        if (subject != null && !subject.isEmpty()) {
+            systemPrompt += "这是一张" + subject + "试卷，请注意识别相关的专业术语和格式。";
+        }
+        systemPrompt += "请按照原始格式输出识别的文字内容，保持题目编号、选项格式不变。如果有手写内容，也请尽量识别。";
 
         // 系统消息
         Map<String, Object> systemMessage = new HashMap<>();
         systemMessage.put("role", "system");
-        systemMessage.put("content", "你是一个专业的教育试卷识别助手。请仔细识别图片中的试卷内容，包括所有题目、选项、答案区域等。请按照原始格式输出识别的文字内容，保持题目编号、选项格式不变。如果有手写内容，也请尽量识别。");
+        systemMessage.put("content", systemPrompt);
         messages.add(systemMessage);
 
         // 用户消息（包含图片）
@@ -175,38 +189,6 @@ public class IflowOcrServiceImpl implements OcrService {
             // 默认使用 JPEG
             return "image/jpeg";
         }
-    }
-
-    /**
-     * 创建模拟响应（用于测试或 OCR 服务不可用时）
-     */
-    private String createMockResponse(String imageFilePath) {
-        log.info("[createMockResponse] 创建模拟 OCR 结果");
-
-        // 模拟一个试卷的 OCR 文本
-        return "一、选择题（每题 2 分，共 20 分）\n\n" +
-                "1. 下列关于 Java 中 String 类的说法，正确的是（  ）\n" +
-                "A. String 是基本数据类型\n" +
-                "B. String 对象一旦创建就不能修改\n" +
-                "C. String 类可以被继承\n" +
-                "D. String 对象可以通过 = = 进行内容比较\n\n" +
-                "2. 以下哪个不是 Java 的访问修饰符？（  ）\n" +
-                "A. public\n" +
-                "B. private\n" +
-                "C. protected\n" +
-                "D. internal\n\n" +
-                "3. 下列关于 Java 异常的说法，错误的是（  ）\n" +
-                "A. Error 表示系统级错误\n" +
-                "B. Exception 表示程序级错误\n" +
-                "C. RuntimeException 是必须捕获的异常\n" +
-                "D. Throwable 是所有异常的父类\n\n" +
-                "二、填空题（每空 2 分，共 20 分）\n\n" +
-                "4. Java 中基本数据类型有 ______ 种，分别是 ________________。\n\n" +
-                "5. Java 中的访问修饰符包括 public、protected、______ 和默认访问权限。\n\n" +
-                "三、简答题（每题 10 分，共 30 分）\n\n" +
-                "6. 简述 Java 中 == 和 equals() 方法的区别。\n\n" +
-                "7. 什么是 Java 中的多态？请举例说明。\n\n" +
-                "8. 简述 Java 中 ArrayList 和 LinkedList 的区别。\n";
     }
 
 }

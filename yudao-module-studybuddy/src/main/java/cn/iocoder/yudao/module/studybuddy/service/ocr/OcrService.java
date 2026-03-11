@@ -32,4 +32,14 @@ public interface OcrService {
      */
     String recognizePaperWithModel(String imageFilePath, String ocrModel);
 
+    /**
+     * 使用指定模型和科目识别试卷图片
+     *
+     * @param imageFilePath 图片文件路径
+     * @param ocrModel OCR 模型代码（aliyun/iflow）
+     * @param subject 试卷科目（用于教育试卷OCR）
+     * @return OCR 识别结果
+     */
+    String recognizePaperWithModelAndSubject(String imageFilePath, String ocrModel, String subject);
+
 }

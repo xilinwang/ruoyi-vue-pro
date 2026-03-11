@@ -69,7 +69,7 @@ public class OcrServiceImpl implements OcrService {
                 log.info("[OcrServiceInit] 阿里云 OCR 客户端初始化成功");
                 log.info("[OcrServiceInit] AccessKeyId: {}", accessKeyId.substring(0, Math.min(4, accessKeyId.length())) + "****");
             } else {
-                log.warn("[OcrServiceInit] 阿里云 OCR 配置缺失 (accessKeyId={}, accessKeySecret={})，将使用模拟数据",
+                log.error("[OcrServiceInit] 阿里云 OCR 配置缺失 (accessKeyId={}, accessKeySecret={})，OCR服务不可用",
                         StringUtils.hasText(accessKeyId) ? "已设置" : "未设置",
                         StringUtils.hasText(accessKeySecret) ? "已设置" : "未设置");
             }
@@ -81,20 +81,38 @@ public class OcrServiceImpl implements OcrService {
     @Override
     public String recognizePaper(String imageFilePath) {
         log.info("[recognizePaper] 开始 OCR 识别，文件路径: {}", imageFilePath);
-        return recognizePaperForEducation(imageFilePath);
+        return recognizePaperForEducation(imageFilePath, null);
     }
 
     @Override
     public String recognizePaperWithModel(String imageFilePath, String ocrModel) {
         log.info("[recognizePaperWithModel] 开始 OCR 识别，文件路径: {}, 模型: {}", imageFilePath, ocrModel);
-        // 目前只支持 aliyun，默认使用阿里云 OCR
-        return recognizePaperForEducation(imageFilePath);
+        // 默认使用阿里云 OCR，不传递科目
+        return recognizePaperForEducation(imageFilePath, null);
+    }
+
+    @Override
+    public String recognizePaperWithModelAndSubject(String imageFilePath, String ocrModel, String subject) {
+        log.info("[recognizePaperWithModelAndSubject] 开始 OCR 识别，文件路径: {}, 模型: {}, 科目: {}",
+                imageFilePath, ocrModel, subject);
+        return recognizePaperForEducation(imageFilePath, subject);
     }
 
     @Override
     public String recognizePaperForEducation(String imageFilePath) {
+        return recognizePaperForEducation(imageFilePath, null);
+    }
+
+    /**
+     * 识别教育场景试卷
+     *
+     * @param imageFilePath 图片文件路径
+     * @param subject 科目（可选，用于提高识别准确率）
+     * @return OCR 识别结果
+     */
+    private String recognizePaperForEducation(String imageFilePath, String subject) {
         log.info("[recognizePaperForEducation] ========== 开始教育场景 OCR 识别 ==========");
-        log.info("[recognizePaperForEducation] 文件路径: {}", imageFilePath);
+        log.info("[recognizePaperForEducation] 文件路径: {}, 科目: {}", imageFilePath, subject);
 
         String logFileName = "ocr_" + fileNameFormat.format(new Date()) + ".log";
         String logFilePath = OCR_LOG_DIR + "/" + logFileName;
@@ -110,13 +128,14 @@ public class OcrServiceImpl implements OcrService {
         writeOcrLog(logFilePath, "========== 阿里云 OCR 请求日志 ==========");
         writeOcrLog(logFilePath, "时间: " + dateFormat.format(new Date()));
         writeOcrLog(logFilePath, "文件路径: " + imageFilePath);
+        writeOcrLog(logFilePath, "科目: " + (subject != null ? subject : "未指定"));
 
         try {
-            // 检查配置
+            // 检查配置 - 如果没有配置则直接抛出异常
             if (ocrClient == null) {
-                log.warn("[recognizePaperForEducation] 阿里云 OCR 客户端未初始化，使用模拟数据");
-                writeOcrLog(logFilePath, "警告: OCR 客户端未初始化，使用模拟数据");
-                return createMockResponse(imageFilePath);
+                log.error("[recognizePaperForEducation] 阿里云 OCR 客户端未初始化，OCR服务不可用");
+                writeOcrLog(logFilePath, "错误: OCR 客户端未初始化，OCR服务不可用");
+                throw new RuntimeException("阿里云 OCR 客户端未初始化，OCR服务不可用");
             }
 
             // 检查是本地文件还是网络 URL
@@ -129,7 +148,7 @@ public class OcrServiceImpl implements OcrService {
             if (!isUrl && !imageFile.exists()) {
                 log.error("[recognizePaperForEducation] 本地文件不存在: {}", imageFilePath);
                 writeOcrLog(logFilePath, "错误: 本地文件不存在: " + imageFilePath);
-                return createMockResponse(imageFilePath);
+                throw new RuntimeException("文件不存在: " + imageFilePath);
             }
 
             // 判断文件类型
@@ -138,10 +157,10 @@ public class OcrServiceImpl implements OcrService {
 
             if (lowerPath.endsWith(".pdf")) {
                 // PDF 文件处理
-                ocrText = recognizePdfFile(imageFilePath, isUrl, logFilePath);
+                ocrText = recognizePdfFile(imageFilePath, isUrl, logFilePath, subject);
             } else {
                 // 图片文件处理（JPG, JPEG, PNG）
-                ocrText = recognizeImageFile(imageFilePath, isUrl, logFilePath);
+                ocrText = recognizeImageFile(imageFilePath, isUrl, logFilePath, subject);
             }
 
             log.info("[recognizePaperForEducation] OCR 识别完成，文本长度: {}", ocrText != null ? ocrText.length() : 0);
@@ -157,22 +176,24 @@ public class OcrServiceImpl implements OcrService {
             java.io.StringWriter sw = new java.io.StringWriter();
             e.printStackTrace(new java.io.PrintWriter(sw));
             writeOcrLog(logFilePath, sw.toString());
-            writeOcrLog(logFilePath, "========== OCR 请求失败，使用模拟数据 ==========");
+            writeOcrLog(logFilePath, "========== OCR 请求失败 ==========");
 
-            // 失败时返回模拟数据，确保流程可以继续
-            log.warn("[recognizePaperForEducation] OCR 失败，使用模拟数据继续流程");
-            return createMockResponse(imageFilePath);
+            // 直接抛出异常，不再使用模拟数据
+            log.error("[recognizePaperForEducation] OCR 识别失败，抛出异常");
+            throw new RuntimeException("OCR 识别失败: " + e.getMessage(), e);
         }
     }
 
     /**
      * 识别图片文件
+     *
      * @param imageFilePath 原始文件路径（可能是 URL 或本地路径）
      * @param isUrl 是否为网络URL
      * @param logFilePath 日志文件路径
+     * @param subject 科目
      */
-    private String recognizeImageFile(String imageFilePath, boolean isUrl, String logFilePath) throws Exception {
-        log.info("[recognizeImageFile] 识别图片文件: {}, 是否为URL: {}", imageFilePath, isUrl);
+    private String recognizeImageFile(String imageFilePath, boolean isUrl, String logFilePath, String subject) throws Exception {
+        log.info("[recognizeImageFile] 识别图片文件: {}, 是否为URL: {}, 科目: {}", imageFilePath, isUrl, subject);
         writeOcrLog(logFilePath, "文件类型: IMAGE");
         writeOcrLog(logFilePath, "是否为URL: " + isUrl);
 
@@ -221,9 +242,21 @@ public class OcrServiceImpl implements OcrService {
         // 构建请求 - 使用教育试卷OCR API
         writeOcrLog(logFilePath, "请求模型: 阿里云读光教育试卷OCR (RecognizeEduPaperOcr)");
         writeOcrLog(logFilePath, "请求内容长度: " + decodedBytes.length + " bytes");
+        writeOcrLog(logFilePath, "ImageType: photo");
+        writeOcrLog(logFilePath, "OutputOricoord: true");
+        writeOcrLog(logFilePath, "Subject: " + (subject != null ? subject : "未指定"));
 
+        // 创建请求，设置所有参数
         RecognizeEduPaperOcrRequest request = new RecognizeEduPaperOcrRequest()
-                .setBody(new java.io.ByteArrayInputStream(decodedBytes));
+                .setBody(new java.io.ByteArrayInputStream(decodedBytes))
+                .setImageType("photo")
+                .setOutputOricoord(true);
+
+        // 如果提供了科目，设置科目参数
+        if (StringUtils.hasText(subject)) {
+            request.setSubject(subject);
+            log.info("[recognizeImageFile] 设置科目: {}", subject);
+        }
 
         // 记录请求发送时间
         long startTime = System.currentTimeMillis();
@@ -247,7 +280,7 @@ public class OcrServiceImpl implements OcrService {
             if (response.getBody() != null) {
                 writeOcrLog(logFilePath, "响应体存在: 是");
                 String dataStr = response.getBody().getData();
-                if (dataStr != null) {
+                if (dataStr != null && !dataStr.isEmpty()) {
                     writeOcrLog(logFilePath, "响应数据长度: " + dataStr.length() + " 字符");
 
                     // 写入完整响应数据用于调试
@@ -262,17 +295,15 @@ public class OcrServiceImpl implements OcrService {
 
                     return result;
                 } else {
-                    writeOcrLog(logFilePath, "响应数据: null");
-                    log.warn("[recognizeImageFile] OCR 响应数据为 null");
+                    writeOcrLog(logFilePath, "响应数据为空");
+                    log.warn("[recognizeImageFile] OCR 响应数据为空");
+                    throw new RuntimeException("OCR 识别失败：返回数据为空");
                 }
             } else {
-                writeOcrLog(logFilePath, "响应体: null");
+                writeOcrLog(logFilePath, "响应体为 null");
                 log.warn("[recognizeImageFile] OCR 响应体为 null");
+                throw new RuntimeException("OCR 识别失败：响应体为空");
             }
-
-            // 如果无法获取有效数据，返回模拟数据
-            writeOcrLog(logFilePath, "警告: 无法获取有效OCR数据，返回模拟数据");
-            return createMockResponse(imageFilePath);
 
         } catch (Exception e) {
             writeOcrLog(logFilePath, "OCR 调用异常: " + e.getMessage());
@@ -288,13 +319,18 @@ public class OcrServiceImpl implements OcrService {
 
     /**
      * 识别 PDF 文件
+     *
      * @param pdfFilePath 原始文件路径（可能是 URL 或本地路径）
      * @param isUrl 是否为网络URL
      * @param logFilePath 日志文件路径
+     * @param subject 科目
      */
-    private String recognizePdfFile(String pdfFilePath, boolean isUrl, String logFilePath) throws Exception {
-        log.info("[recognizePdfFile] 识别 PDF 文件: {}, 是否为URL: {}", pdfFilePath, isUrl);
+    private String recognizePdfFile(String pdfFilePath, boolean isUrl, String logFilePath, String subject) throws Exception {
+        log.info("[recognizePdfFile] 识别 PDF 文件: {}, 是否为URL: {}, 科目: {}", pdfFilePath, isUrl, subject);
         writeOcrLog(logFilePath, "文件类型: PDF");
+        writeOcrLog(logFilePath, "ImageType: photo");
+        writeOcrLog(logFilePath, "OutputOricoord: true");
+        writeOcrLog(logFilePath, "Subject: " + (subject != null ? subject : "未指定"));
 
         String base64Pdf;
         if (isUrl) {
@@ -322,8 +358,16 @@ public class OcrServiceImpl implements OcrService {
         writeOcrLog(logFilePath, "请求模型: 阿里云读光教育试卷OCR (RecognizeEduPaperOcr)");
         writeOcrLog(logFilePath, "请求内容长度: " + decodedPdfBytes.length + " bytes");
 
+        // 创建请求，设置所有参数
         RecognizeEduPaperOcrRequest request = new RecognizeEduPaperOcrRequest()
-                .setBody(new java.io.ByteArrayInputStream(decodedPdfBytes));
+                .setBody(new java.io.ByteArrayInputStream(decodedPdfBytes))
+                .setImageType("photo")
+                .setOutputOricoord(true);
+
+        // 如果提供了科目，设置科目参数
+        if (StringUtils.hasText(subject)) {
+            request.setSubject(subject);
+        }
 
         // 调用 API
         long startTime = System.currentTimeMillis();
@@ -334,11 +378,11 @@ public class OcrServiceImpl implements OcrService {
         log.info("[recognizePdfFile] OCR API 调用成功，耗时: {} ms", endTime - startTime);
 
         // 解析响应
-        if (response.getBody() != null && response.getBody().getData() != null) {
+        if (response.getBody() != null && response.getBody().getData() != null && !response.getBody().getData().isEmpty()) {
             return parseOcrResponse(response.getBody().getData());
         }
 
-        return createMockResponse(pdfFilePath);
+        throw new RuntimeException("OCR 识别失败：PDF响应数据为空");
     }
 
     /**
@@ -441,38 +485,6 @@ public class OcrServiceImpl implements OcrService {
             // 默认 JPEG
             return "image/jpeg";
         }
-    }
-
-    /**
-     * 创建模拟响应（用于测试或 OCR 服务不可用时）
-     */
-    private String createMockResponse(String imageFilePath) {
-        log.info("[createMockResponse] 创建模拟 OCR 结果");
-
-        // 模拟一个试卷的 OCR 文本
-        return "一、选择题（每题 2 分，共 20 分）\n\n" +
-                "1. 下列关于 Java 中 String 类的说法，正确的是（  ）\n" +
-                "A. String 是基本数据类型\n" +
-                "B. String 对象一旦创建就不能修改\n" +
-                "C. String 类可以被继承\n" +
-                "D. String 对象可以通过 = = 进行内容比较\n\n" +
-                "2. 以下哪个不是 Java 的访问修饰符？（  ）\n" +
-                "A. public\n" +
-                "B. private\n" +
-                "C. protected\n" +
-                "D. internal\n\n" +
-                "3. 下列关于 Java 异常的说法，错误的是（  ）\n" +
-                "A. Error 表示系统级错误\n" +
-                "B. Exception 表示程序级错误\n" +
-                "C. RuntimeException 是必须捕获的异常\n" +
-                "D. Throwable 是所有异常的父类\n\n" +
-                "二、填空题（每空 2 分，共 20 分）\n\n" +
-                "4. Java 中基本数据类型有 ______ 种，分别是 ________________。\n\n" +
-                "5. Java 中的访问修饰符包括 public、protected、______ 和默认访问权限。\n\n" +
-                "三、简答题（每题 10 分，共 30 分）\n\n" +
-                "6. 简述 Java 中 == 和 equals() 方法的区别。\n\n" +
-                "7. 什么是 Java 中的多态？请举例说明。\n\n" +
-                "8. 简述 Java 中 ArrayList 和 LinkedList 的区别。\n";
     }
 
 }

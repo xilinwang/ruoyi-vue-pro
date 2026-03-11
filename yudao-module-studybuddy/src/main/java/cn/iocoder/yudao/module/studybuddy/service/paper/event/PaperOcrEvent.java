@@ -31,16 +31,24 @@ public class PaperOcrEvent implements Serializable {
      */
     private final String ocrModel;
 
+    /**
+     * 试卷科目（用于教育试卷OCR识别）
+     */
+    private final String subject;
+
     public PaperOcrEvent(Long paperId, String filePath) {
-        this.paperId = paperId;
-        this.filePath = filePath;
-        this.ocrModel = OcrModelEnum.ALIYUN.getCode();
+        this(paperId, filePath, null, null);
     }
 
     public PaperOcrEvent(Long paperId, String filePath, String ocrModel) {
+        this(paperId, filePath, ocrModel, null);
+    }
+
+    public PaperOcrEvent(Long paperId, String filePath, String ocrModel, String subject) {
         this.paperId = paperId;
         this.filePath = filePath;
         this.ocrModel = ocrModel != null ? ocrModel : OcrModelEnum.ALIYUN.getCode();
+        this.subject = subject;
     }
 
 }
