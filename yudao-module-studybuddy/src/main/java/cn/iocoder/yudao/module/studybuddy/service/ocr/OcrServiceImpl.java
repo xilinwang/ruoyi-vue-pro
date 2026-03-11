@@ -33,8 +33,8 @@ import java.util.Date;
 @Slf4j
 public class OcrServiceImpl implements OcrService {
 
-    // OCR 日志目录 - 使用绝对路径
-    private static final String OCR_LOG_DIR = "/home/wxl/logs/ocr";
+    // OCR 日志目录 - 使用绝对路径，测试时使用 ./temp
+    private static final String OCR_LOG_DIR = "./temp/ocr";
     private SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
     private SimpleDateFormat fileNameFormat = new SimpleDateFormat("yyyyMMdd_HHmmss_SSS");
 

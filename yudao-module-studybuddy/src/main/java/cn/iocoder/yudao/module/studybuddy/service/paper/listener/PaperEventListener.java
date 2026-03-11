@@ -52,6 +52,7 @@ public class PaperEventListener {
 
     /**
      * 监听试卷 OCR 事件并异步处理
+     * 现在统一使用阿里云 OCR 服务
      */
     @EventListener
     @Async(StudyBuddyJobConfiguration.STUDYBUDDY_TASK_EXECUTOR)
@@ -60,12 +61,13 @@ public class PaperEventListener {
                  event.getPaperId(), event.getFilePath(), event.getOcrModel(), event.getSubject());
 
         try {
-            // 根据模型选择 OCR 服务
-            OcrService ocrService = ocrServiceFactory.getOcrService(event.getOcrModel());
+            // 统一使用阿里云 OCR 服务
+            OcrService ocrService = ocrServiceFactory.getDefaultOcrService();
+            log.info("[handlePaperOcrEvent] 使用阿里云读光 OCR 服务");
 
-            // 1. 执行 OCR 识别（带科目参数）
+            // 1. 执行 OCR 识别（传递科目参数）
             String ocrResult = ocrService.recognizePaperWithModelAndSubject(
-                    event.getFilePath(), event.getOcrModel(), event.getSubject());
+                    event.getFilePath(), "aliyun", event.getSubject());
 
             // 2. 调用 LLM 解析题目结构
             String questionsJson = llmService.parseQuestionStructure(ocrResult);
@@ -135,33 +137,44 @@ public class PaperEventListener {
 
     /**
      * 保存解析的题目到数据库
+     * 
+     * @throws RuntimeException 当解析或保存失败时抛出异常
      */
     private void saveQuestions(Long paperId, String questionsJson) {
         log.info("[saveQuestions] 开始保存题目到数据库，试卷ID: {}", paperId);
 
+        // 解析 LLM 返回的 JSON
+        JSONObject jsonObject;
         try {
-            // 解析 LLM 返回的 JSON
-            JSONObject jsonObject = JSONUtil.parseObj(questionsJson);
+            jsonObject = JSONUtil.parseObj(questionsJson);
+        } catch (Exception e) {
+            log.error("[saveQuestions] JSON 解析失败，试卷ID: {}", paperId, e);
+            throw new RuntimeException("JSON 解析失败: " + e.getMessage(), e);
+        }
 
-            // 提取题目列表
-            Object questionsObj = jsonObject.get("questions");
-            if (questionsObj == null) {
-                log.warn("[saveQuestions] LLM 返回结果中没有 questions 字段: {}", questionsJson);
-                return;
-            }
+        // 提取题目列表
+        Object questionsObj = jsonObject.get("questions");
+        if (questionsObj == null) {
+            String errorMsg = "LLM 返回结果中没有 questions 字段";
+            log.warn("[saveQuestions] {}, 原始响应: {}", errorMsg, questionsJson);
+            throw new RuntimeException(errorMsg);
+        }
 
-            cn.hutool.json.JSONArray questionsArray = jsonObject.getJSONArray("questions");
-            if (questionsArray == null || questionsArray.isEmpty()) {
-                log.warn("[saveQuestions] 题目列表为空");
-                return;
-            }
+        cn.hutool.json.JSONArray questionsArray = jsonObject.getJSONArray("questions");
+        if (questionsArray == null || questionsArray.isEmpty()) {
+            String errorMsg = "题目列表为空";
+            log.warn("[saveQuestions] {}", errorMsg);
+            throw new RuntimeException(errorMsg);
+        }
 
-            log.info("[saveQuestions] 解析到 {} 道题目", questionsArray.size());
+        log.info("[saveQuestions] 解析到 {} 道题目", questionsArray.size());
 
-            // 遍历题目并保存到数据库
-            for (int i = 0; i < questionsArray.size(); i++) {
-                JSONObject questionJson = questionsArray.getJSONObject(i);
+        int savedCount = 0;
+        // 遍历题目并保存到数据库
+        for (int i = 0; i < questionsArray.size(); i++) {
+            JSONObject questionJson = questionsArray.getJSONObject(i);
 
+            try {
                 // 构建题目对象
                 cn.iocoder.yudao.module.studybuddy.dal.dataobject.paper.QuestionDO question =
                     cn.iocoder.yudao.module.studybuddy.dal.dataobject.paper.QuestionDO.builder()
@@ -184,17 +197,22 @@ public class PaperEventListener {
 
                 // 保存到数据库
                 questionMapper.insert(question);
+                savedCount++;
 
                 log.debug("[saveQuestions] 保存题目成功，题号: {}, 内容: {}",
                     question.getQuestionNo(), question.getContent().substring(0, Math.min(30, question.getContent().length())));
+
+            } catch (Exception e) {
+                log.error("[saveQuestions] 保存单道题目失败，试卷ID: {}, 题号: {}", paperId, i + 1, e);
+                // 继续处理其他题目，但记录失败
             }
-
-            log.info("[saveQuestions] 题目保存完成，共保存 {} 道题目", questionsArray.size());
-
-        } catch (Exception e) {
-            log.error("[saveQuestions] 保存题目失败，试卷ID: {}", paperId, e);
-            // 不抛出异常，允许流程继续
         }
+
+        if (savedCount == 0) {
+            throw new RuntimeException("所有题目保存失败");
+        }
+
+        log.info("[saveQuestions] 题目保存完成，共保存 {} 道题目", savedCount);
     }
 
     /**
@@ -301,30 +319,63 @@ public class PaperEventListener {
     }
 
     /**
-     * 从 OCR 结果中提取答案（简化版，实际需要更复杂的解析）
+     * 从 OCR 结果中提取答案
+     * 支持多种答题卡格式：
+     * 1. 选择题：题号 + 选项（如 "1. B" 或 "1、A"）
+     * 2. 填空题：题号 + 答案文本
+     * 3. 简答题：题号 + 答案段落
      */
     private String extractAnswerFromOcr(String ocrResult, String questionNo) {
-        // 简化处理：假设 OCR 结果中包含类似 "1. B" 的格式
-        // 实际实现需要根据 OCR 识别的答题卡格式进行解析
-        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(questionNo + "\\s*[.、)]\\s*([A-D])");
-        java.util.regex.Matcher matcher = pattern.matcher(ocrResult);
-        if (matcher.find()) {
-            return matcher.group(1);
+        if (!org.springframework.util.StringUtils.hasText(ocrResult)) {
+            log.debug("[extractAnswerFromOcr] OCR 结果为空，题目: {}", questionNo);
+            return null;
         }
 
-        // 如果是简答题，返回模拟答案
-        if (questionNo.equals("6")) {
-            return "== 比较的是引用地址，equals() 比较的是内容";
+        // 1. 尝试匹配选择题格式：题号 + 选项 (A/B/C/D)
+        // 支持格式：1. B / 1、B / 1)B / (1)B / 1 B
+        java.util.regex.Pattern choicePattern = java.util.regex.Pattern.compile(
+                "(?:^|\\n)\\s*[（(]?" + java.util.regex.Pattern.quote(questionNo) + 
+                "\\s*[）)、.]?\\s*([A-Da-d])(?:\\s|$|\\n)"
+        );
+        java.util.regex.Matcher choiceMatcher = choicePattern.matcher(ocrResult);
+        if (choiceMatcher.find()) {
+            String answer = choiceMatcher.group(1).toUpperCase();
+            log.debug("[extractAnswerFromOcr] 选择题答案: 题目={}, 答案={}", questionNo, answer);
+            return answer;
         }
 
-        // 对于选择题，返回模拟答案
-        if (questionNo.equals("1")) {
-            return "B";
-        }
-        if (questionNo.equals("2")) {
-            return "D";
+        // 2. 尝试匹配填空题/简答题格式：题号 + 答案内容
+        // 匹配到下一题号或文件末尾
+        java.util.regex.Pattern textPattern = java.util.regex.Pattern.compile(
+                "(?:^|\\n)\\s*[（(]?" + java.util.regex.Pattern.quote(questionNo) + 
+                "\\s*[）)、.]?\\s*(.+?)(?=(?:\\n\\s*[（(]?\\d+\\s*[）)、.])|$)",
+                java.util.regex.Pattern.DOTALL
+        );
+        java.util.regex.Matcher textMatcher = textPattern.matcher(ocrResult);
+        if (textMatcher.find()) {
+            String answer = textMatcher.group(1).trim();
+            if (org.springframework.util.StringUtils.hasText(answer)) {
+                // 清理答案文本
+                answer = answer.replaceAll("\\s+", " ").trim();
+                log.debug("[extractAnswerFromOcr] 主观题答案: 题目={}, 答案长度={}", questionNo, answer.length());
+                return answer;
+            }
         }
 
+        // 3. 尝试匹配答题卡区域格式（常见于标准化答题卡）
+        // 假设 OCR 识别出题号和涂卡位置：如 "1: B" 或 "Q1=B"
+        java.util.regex.Pattern cardPattern = java.util.regex.Pattern.compile(
+                "Q?" + java.util.regex.Pattern.quote(questionNo) + "\\s*[=:]\\s*([A-Da-d])",
+                java.util.regex.Pattern.CASE_INSENSITIVE
+        );
+        java.util.regex.Matcher cardMatcher = cardPattern.matcher(ocrResult);
+        if (cardMatcher.find()) {
+            String answer = cardMatcher.group(1).toUpperCase();
+            log.debug("[extractAnswerFromOcr] 答题卡格式答案: 题目={}, 答案={}", questionNo, answer);
+            return answer;
+        }
+
+        log.debug("[extractAnswerFromOcr] 未找到答案: 题目={}", questionNo);
         return null;
     }
 
